@@ -37,7 +37,6 @@ pub unsafe trait Extract: Sized {
 /// The methods return a `'static` reference however this is a falsehood.
 #[derive(Debug)]
 pub struct Rez {
-    // FIXME: priv
     vals: &'static [(*mut dyn Obj, Access)],
 }
 impl Rez {

@@ -117,8 +117,6 @@ where
     }
 }
 // WriteColumn is append-only, so IndexMut is not provided.
-// FIXME: Idx for checked indexing. These index impls should be done using Idx, and we can have
-// something that implements indexing w/ Id in terms of checking the Id.
 
 impl<'a, M: TableMarker, T> WriteColumn<'a, M, T> {
     pub fn borrow(&self) -> ReadColumn<M, T> {
@@ -191,7 +189,7 @@ where
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<Column<M, T>>(), Access::Write)
     }
-    // (col, old_len, must_log)
+    // (col, must_log, old_len)
     type Owned = (&'a mut Column<M, T>, bool, usize);
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
         let must_log = universe.has::<Tracker<Pushed<M>>>();

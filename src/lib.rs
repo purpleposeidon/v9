@@ -15,10 +15,8 @@
 #[macro_use]
 extern crate mopa;
 
-// FIXME: ag '#[allow'
 // FIXME: Use UniquePtr, etc...?
 // FIXME: Add universe.deny(TypeId) to allow constraints like "table is not sparse"
-// FIXME: impl Extract for Universe.
 
 #[macro_use]
 pub mod object;

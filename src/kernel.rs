@@ -160,39 +160,36 @@ impl<T> DerefMut for KernelArg<T> {
     }
 }
 
-mod kernel_impl {
-    #![allow(non_snake_case)]
-    use super::*;
-    macro_rules! impl_kernel {
-        ($($A:ident),*) => {
-            unsafe impl<$($A,)* X> KernelFn<($($A,)*)> for X
-            where
-                X: 'static,
-                X: FnMut($($A),*),
-                $($A: Extract,)*
-            {
-                fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-                    $(
-                        $A::each_resource(f);
-                    )*
-                }
-                unsafe fn run(&mut self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) {
-                    $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
-                    {
-                        $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
-                        self($($A),*);
-                    }
-                    cleanup();
-                    $($A::finish(universe, $A);)*
-                }
+macro_rules! impl_kernel {
+    ($($A:ident),*) => {
+        #[allow(non_snake_case)]
+        unsafe impl<$($A,)* X> KernelFn<($($A,)*)> for X
+        where
+            X: 'static,
+            X: FnMut($($A),*),
+            $($A: Extract,)*
+        {
+            fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
+                $(
+                    $A::each_resource(f);
+                )*
             }
-            impl_kernel! { @ $($A),* }
-        };
-        (@ $_:ident) => {};
-        (@ $_:ident $(, $A:ident)*) => {
-            // I wish we could pop the tail. 'A13, A14' is silly.
-            impl_kernel! { $($A),* }
-        };
-    }
-    impl_kernel! { A00, A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14 }
+            unsafe fn run(&mut self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) {
+                $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
+                {
+                    $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
+                    self($($A),*);
+                }
+                cleanup();
+                $($A::finish(universe, $A);)*
+            }
+        }
+        impl_kernel! { @ $($A),* }
+    };
+    (@ $_:ident) => {};
+    (@ $_:ident $(, $A:ident)*) => {
+        // I wish we could pop the tail. 'A13, A14' is silly.
+        impl_kernel! { $($A),* }
+    };
 }
+impl_kernel! { A00, A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14 }

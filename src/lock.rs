@@ -7,13 +7,12 @@ fn thread_id() -> ThreadId {
 }
 
 pub struct Locked {
-    // FIXME: This thing must be pub, yeah?
+    // This is stuff is public due to our 'no encapsulation' policy.
     pub obj: UnsafeCell<Box<dyn Obj>>,
     pub state: LockState,
 }
 impl fmt::Debug for Locked {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        //write!(f, "{:?} {:?} {}", self.state, self.obj.get(), unsafe { (*self.obj.get()).debug() })
         write!(f, "{:?} {:?}", self.state, self.obj.get())
     }
 }
@@ -71,7 +70,7 @@ impl Locked {
         self.acquire(Access::Write);
         GuardMut { lock: self }
     }
-    // Are the guards actually safe?
+    // FIXME: How safe & sound are the guards?
 }
 impl Drop for Locked {
     fn drop(&mut self) {

@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::{Condvar, Mutex};
 use std::thread::ThreadId;
 
+// FIXME: impl Extract for Universe.
+
 pub unsafe trait ExtractOwned {
     type Ty: Obj;
     const ACC: Access;
@@ -25,58 +27,7 @@ where
     }
 }
 
-/*
-// FIXME: Implement a property wrapper
-#[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Val<T: StdAny> {
-    val: T,
-}
-*/
-
-// NB: We wanted this for 'Kernel::push_arg'. But we can just add a `KernelArg` type.
-/*
-pub struct ExtractRef<'a, T> {
-    val: &'a T,
-}
-impl<'a, T> Deref for ExtractRef<'a, T> {
-    type Target = T;
-    fn deref(&self) -> &T { self.val }
-}
-unsafe impl<'a, T: Obj> Extract for ExtractRef<'a, T> {
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) { f(TypeId::of::<Obj>(), Access::Read) }
-    type Owned = Option<Self>;
-    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
-        Some(ExtractRef {
-            val: rez.take_ref_downcast::<T>(),
-        })
-    }
-    unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
-        (*owned).take().unwrap()
-    }
-}
-pub struct ExtractMut<'a, T> {
-    val: &'a mut  T,
-}
-impl<'a, T> Deref for ExtractMut<'a, T> {
-    type Target = T;
-    fn deref(&self) -> &T { self.val }
-}
-impl<'a, T> DerefMut for ExtractMut<'a, T> {
-    fn deref_mut(&mut self) -> &mut T { self.val }
-}
-unsafe impl<'a, T: Obj> Extract for ExtractMut<'a, T> {
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) { f(TypeId::of::<Obj>(), Access::Read) }
-    type Owned = Option<Self>;
-    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
-        Some(ExtractMut {
-            val: rez.take_mut_downcast::<T>(),
-        })
-    }
-    unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
-        (*owned).take().unwrap()
-    }
-}
-*/
+// FIXME: Implement a property wrapper. Probably called `Val` instead of `Property`.
 
 /// Essentially `Any`.
 pub trait Obj: mopa::Any {}
