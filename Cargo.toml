@@ -1,0 +1,14 @@
+[package]
+name = "v9"
+version = "0.1.0"
+authors = ["neptunepink <purpleposeidon@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+mopa = "0.2"
+#slice-deque = "0.1.16"
+smallvec = "0.6"
+paste = "0.1.5"
+
+[dev-dependencies]
+rand = "0.6"
