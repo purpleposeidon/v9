@@ -33,6 +33,28 @@ pub unsafe trait Extract: Sized {
 }
 // FIXME: It'd be nice to have impls of Extract for tuples; up to, say, 5.
 
+/// Helper trait. 
+pub unsafe trait ExtractOwned {
+    type Ty: Obj;
+    const ACC: Access;
+    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self;
+}
+unsafe impl<X> Extract for X
+where
+    X: ExtractOwned,
+{
+    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
+        f(TypeId::of::<X::Ty>(), X::ACC)
+    }
+    type Owned = Option<X>;
+    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
+        Some(X::extract(universe, rez))
+    }
+    unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> X {
+        (*owned).take().unwrap()
+    }
+}
+
 /// Produces the objects asked for by `Extract`.
 /// The methods return a `'static` reference however this is a falsehood.
 #[derive(Debug)]
@@ -64,4 +86,5 @@ impl Rez {
         got.downcast_mut().unwrap()
     }
     // FIXME: Explain why we use the 'static lie.
+    // FIXME: Couldn't these methods be made safe if we stuck an 'a on Rez?
 }

@@ -6,27 +6,6 @@ use std::thread::ThreadId;
 
 // FIXME: impl Extract for Universe.
 
-pub unsafe trait ExtractOwned {
-    type Ty: Obj;
-    const ACC: Access;
-    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self;
-}
-unsafe impl<X> Extract for X
-where
-    X: ExtractOwned,
-{
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-        f(TypeId::of::<X::Ty>(), X::ACC)
-    }
-    type Owned = Option<X>;
-    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
-        Some(X::extract(universe, rez))
-    }
-    unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> X {
-        (*owned).take().unwrap()
-    }
-}
-
 // FIXME: Implement a property wrapper. Probably called `Val` instead of `Property`.
 
 /// Essentially `Any`.
