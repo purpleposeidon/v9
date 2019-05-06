@@ -1,7 +1,7 @@
 use crate::prelude_lib::*;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
-use std::sync::{Condvar, Mutex};
+use std::sync::RwLock;
 use std::thread::ThreadId;
 
 // FIXME: impl Extract for Universe.
@@ -9,6 +9,7 @@ use std::thread::ThreadId;
 // FIXME: Implement a property wrapper. Probably called `Val` instead of `Property`.
 
 /// Essentially `Any`.
+//pub trait Obj: mopa::Any + Send + Sync {}
 pub trait Obj: mopa::Any {}
 #[allow(clippy::transmute_ptr_to_ref)]
 mod mopafy_for_clippy {
@@ -25,9 +26,8 @@ pub enum LockState {
 
 #[derive(Default)]
 pub struct Universe {
-    pub(crate) condvar: Condvar,
-    // FIXME: Vec<Arc<Mutex<HashMap>>>; maybe called Vec<Blob>? Or maybe just s/Box/Arc<Locked>?
-    pub(crate) objects: Mutex<HashMap<TypeId, Box<Locked>>>,
+    // FIXME: Vec<Arc<RwLock<HashMap>>>; maybe called Vec<Blob>? Or maybe just s/Box/Arc<Locked>?
+    pub(crate) objects: RwLock<HashMap<TypeId, Box<Locked>>>,
 }
 // FIXME: impl Sync for Universe or wetf?
 
@@ -42,7 +42,7 @@ impl Universe {
         };
     }
     pub fn add<T: Obj>(&self, key: TypeId, obj: T) {
-        let map = &mut *self.objects.lock().unwrap();
+        let map = &mut *self.objects.write().unwrap();
         Universe::insert(map, key, Locked::new(Box::new(obj)));
     }
     pub fn add_mut<T: Obj>(&mut self, key: TypeId, obj: T) {
@@ -52,7 +52,7 @@ impl Universe {
     }
     pub fn has<T: Obj>(&self) -> bool {
         self.objects
-            .lock()
+            .read()
             .unwrap()
             .get(&TypeId::of::<T>())
             .is_some()
@@ -61,7 +61,7 @@ impl Universe {
 
 impl Universe {
     pub fn all_mut(&mut self, mut each: impl FnMut(&mut Obj)) {
-        let mut objs = self.objects.lock().unwrap();
+        let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let mut lock = lock.write();
@@ -71,7 +71,7 @@ impl Universe {
         }
     }
     pub fn all_ref(&self, mut each: impl FnMut(&Obj)) {
-        let mut objs = self.objects.lock().unwrap();
+        let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let lock = lock.read();
@@ -89,25 +89,19 @@ impl Universe {
         access: Access,
         f: impl FnOnce(*mut dyn Obj) -> R,
     ) -> R {
-        let mut objects = self.objects.lock().unwrap();
         loop {
+            let mut objects = self.objects.write().unwrap();
             let obj = objects.get_mut(&ty).expect("type not found");
-            if let Access::Write = access {
-                if let LockState::Write(_) = obj.state {
-                    panic!("with_access would deadlock: {:?}", ty);
-                }
-            }
             if obj.can(access) {
                 obj.acquire(access);
                 let obj = unsafe { obj.contents() };
                 mem::drop(objects);
                 let ret = f(obj);
-                let mut objects = self.objects.lock().unwrap();
+                let mut objects = self.objects.write().unwrap();
                 let obj = objects.get_mut(&ty).expect("type lost");
                 obj.release(access);
                 return ret;
             }
-            objects = self.condvar.wait(objects).unwrap();
         }
     }
     pub fn with<T: Obj, R>(&self, f: impl FnOnce(&T) -> R) -> R {
@@ -125,7 +119,7 @@ impl Universe {
         })
     }
     pub fn lock_state_dump(&self) {
-        let objects = self.objects.lock().unwrap();
+        let objects = self.objects.read().unwrap();
         for (ty, val) in objects.iter() {
             println!("    {:?}\t{:?}", ty, val.state);
         }

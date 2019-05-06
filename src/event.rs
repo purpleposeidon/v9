@@ -14,7 +14,7 @@ impl Universe {
         let ty = &mut TypeId::of::<Tracker<E>>();
         unsafe {
             let event = {
-                let mut objects = self.objects.lock().unwrap();
+                let mut objects = self.objects.write().unwrap();
                 if let Some(locked) = objects.get_mut(ty) {
                     locked.acquire(Access::Write);
                     let obj: &mut dyn Obj = &mut *locked.contents();
@@ -30,7 +30,7 @@ impl Universe {
                 panic!("if all handlers are removed from a tracker, it should be removed");
             }
         }
-        let mut objects = self.objects.lock().unwrap();
+        let mut objects = self.objects.write().unwrap();
         objects
             .get_mut(ty)
             .expect("lost locked object")
@@ -38,7 +38,7 @@ impl Universe {
     }
     pub fn add_tracker<E: 'static>(&self, f: Box<FnMut(&Universe, &E)>) {
         let ty = TypeId::of::<Tracker<E>>();
-        let mut objects = self.objects.lock().unwrap();
+        let mut objects = self.objects.write().unwrap();
         let obj = objects
             .entry(ty)
             .or_insert_with(|| Locked::new(Box::new(Tracker::<E> { handlers: vec![] })));

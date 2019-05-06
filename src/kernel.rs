@@ -6,8 +6,8 @@ impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
         unsafe {
             {
-                let mut objects = self.objects.lock().unwrap();
                 'again: loop {
+                    let mut objects = self.objects.write().unwrap();
                     let locks = &mut kernel.locks;
                     let vals = &mut kernel.vals;
                     locks.clear();
@@ -18,7 +18,6 @@ impl Universe {
                             .get_mut(&ty)
                             .expect("unknown argument type in kernel");
                         if !lock.can(acc) {
-                            objects = self.condvar.wait(objects).unwrap();
                             continue 'again;
                         }
                         locks.push((lock.deref_mut() as *mut Locked, acc));
@@ -40,7 +39,7 @@ impl Universe {
                 let resources = &kernel.resources;
                 panic::catch_unwind(AssertUnwindSafe(move || {
                     run(self, rez, &mut move || {
-                        let mut objects = self.objects.lock().expect("unable to release locks");
+                        let mut objects = self.objects.write().expect("unable to release locks");
                         for &(ty, acc) in resources {
                             let lock = objects.get_mut(&ty).expect("lost locked object");
                             lock.release(acc);
