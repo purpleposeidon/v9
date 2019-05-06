@@ -4,7 +4,7 @@
 //! # Design
 //! A `Universe` has the same shape as a `HashMap<TypeId, Any>`.
 //! A single instance of any type can be inserted into the universe.
-//! Changes can then be made by `map`ping a `Kernel`.
+//! Changes can then be made by `run`ning a `Kernel`.
 //! A `Kernel` is any closure whose arguments all implement `Extract`.
 //! `Extract` indicates to the `Universe` what resources it needs,
 //! and does whatever is necessary to provide itself as an argument to the kernel.
