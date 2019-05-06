@@ -1,0 +1,7 @@
+# Documentation
+Explain that you can't extract owned things.
+Explain the universe methods implemented in each module.
+Document table!'s output
+Document context!'s output
+Universe item docs are dumb
+crate docs: s/map/run
