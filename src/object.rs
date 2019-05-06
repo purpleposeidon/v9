@@ -23,7 +23,6 @@ pub enum LockState {
     Read(u64),
 }
 
-/// See `table!`.
 #[derive(Default)]
 pub struct Universe {
     pub(crate) condvar: Condvar,
