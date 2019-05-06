@@ -5,18 +5,15 @@ set -e
 
 VALGRIND="valgrind $CONNECT_GDB "
 CONNECT_GDB="--vgdb-error=0"
-
 CONNECT_GDB=""
-
-if false
-then
-    cargo build --tests
-    EXE=target/debug/deps/v9-1f0b4b8fae4d5eac
-else
-    cargo build --tests --release
-    EXE=target/release/deps/v9-e556b92b2027bba6
-fi
 TEST=""
 
 
+cargo build --tests
+EXE=target/debug/deps/v9-1f0b4b8fae4d5eac
+$VALGRIND $EXE --test-threads 1 $TEST
+
+
+cargo build --tests --release
+EXE=target/release/deps/v9-e556b92b2027bba6
 $VALGRIND $EXE --test-threads 1 $TEST
