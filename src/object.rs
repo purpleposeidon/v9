@@ -9,8 +9,7 @@ use std::thread::ThreadId;
 // FIXME: Implement a property wrapper. Probably called `Val` instead of `Property`.
 
 /// Essentially `Any`.
-//pub trait Obj: mopa::Any + Send + Sync {}
-pub trait Obj: mopa::Any {}
+pub trait Obj: mopa::Any + Send + Sync {}
 #[allow(clippy::transmute_ptr_to_ref)]
 mod mopafy_for_clippy {
     use super::Obj;
@@ -29,7 +28,12 @@ pub struct Universe {
     // FIXME: Vec<Arc<RwLock<HashMap>>>; maybe called Vec<Blob>? Or maybe just s/Box/Arc<Locked>?
     pub(crate) objects: RwLock<HashMap<TypeId, Box<Locked>>>,
 }
-// FIXME: impl Sync for Universe or wetf?
+
+unsafe impl Send for Universe {}
+unsafe impl Sync for Universe {}
+// I'm working off of metaphor by RwLock here.
+// RwLock has these bounds if T does.
+// Since Obj is our T, it needs to have those bounds as well.
 
 impl Universe {
     pub fn new() -> Self {
@@ -188,6 +192,12 @@ mod test {
         universe.kmap(|text: &mut String| {
             assert_eq!(text, "Hello World");
         });
+    }
+
+    #[test]
+    fn universe_claims_to_be_threadsafe() {
+        fn assert<T: Send + Sync>() {}
+        assert::<Universe>();
     }
 }
 

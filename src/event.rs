@@ -5,12 +5,12 @@ use crate::prelude_lib::*;
 
 /// Event handlers for an event `E`.
 // FIXME: Events should use RunIter.
-pub struct Tracker<E> {
-    pub handlers: Vec<Box<FnMut(&Universe, &E)>>,
+pub struct Tracker<E: 'static + Send + Sync> {
+    pub handlers: Vec<Box<FnMut(&Universe, &E) + Send + Sync>>,
 }
-impl<E: 'static> Obj for Tracker<E> {}
+impl<E: 'static + Send + Sync> Obj for Tracker<E> {}
 impl Universe {
-    pub fn submit_event<E: 'static>(&self, e: &E) {
+    pub fn submit_event<E: 'static + Send + Sync>(&self, e: &E) {
         let ty = &mut TypeId::of::<Tracker<E>>();
         unsafe {
             let event = {
@@ -36,7 +36,10 @@ impl Universe {
             .expect("lost locked object")
             .release(Access::Write);
     }
-    pub fn add_tracker<E: 'static>(&self, f: Box<FnMut(&Universe, &E)>) {
+    pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &E) + 'static + Send + Sync>(&self, f: F) {
+        self.add_tracker_box(Box::new(f))
+    }
+    fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<FnMut(&Universe, &E) + Send + Sync>) {
         let ty = TypeId::of::<Tracker<E>>();
         let mut objects = self.objects.write().unwrap();
         let obj = objects
@@ -191,7 +194,7 @@ pub struct Edited<M: TableMarker, T: 'static> {
     pub(crate) col: &'static Column<M, T>,
     pub new: Vec<(Id<M>, T)>,
 }
-impl<M: TableMarker, T: 'static> Obj for Edited<M, T> {}
+impl<M: TableMarker, T: 'static + Send + Sync> Obj for Edited<M, T> {}
 impl<M: TableMarker, T> Edited<M, T> {
     pub fn col<'a>(&'a self) -> &'a Column<M, T> {
         self.col

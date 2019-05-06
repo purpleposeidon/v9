@@ -3,7 +3,7 @@ use crate::event::*;
 use crate::prelude_lib::*;
 use std::cell::RefCell;
 
-pub trait Raw: Copy + fmt::Debug + Ord {
+pub trait Raw: 'static + Copy + fmt::Debug + Ord + Send + Sync {
     fn to_usize(self) -> usize;
     fn from_usize(x: usize) -> Self;
     fn offset(self, d: i8) -> Self;

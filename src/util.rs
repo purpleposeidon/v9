@@ -23,6 +23,9 @@ impl<T> SyncRef<T> {
     }
 }
 // Trying to impl Deref/DerefMut provokes odd curiosities.
+unsafe impl<T: Send> Send for SyncRef<T> {}
+unsafe impl<T> Sync for SyncRef<T> {}
+// FIXME: Ugh, this is probably unsound.
 
 pub struct MutButRef<'a, T>(&'a mut T);
 impl<'a, T> MutButRef<'a, T> {

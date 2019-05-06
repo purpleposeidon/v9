@@ -64,7 +64,7 @@ impl Universe {
 /// 1. All arguments are `Extract`.
 /// 2. There aren't too many
 /// 3. (FIXME: Constraints on return value? Must be `()` for now.)
-pub unsafe trait KernelFn<Dump>: 'static {
+pub unsafe trait KernelFn<Dump>: 'static + Send + Sync {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access));
 
     unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut());
@@ -72,10 +72,15 @@ pub unsafe trait KernelFn<Dump>: 'static {
 
 pub struct Kernel {
     resources: Vec<(TypeId, Access)>,
-    run: Box<dyn FnMut(&Universe, Rez, &mut dyn FnMut())>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut (dyn FnMut() + Send + Sync)) + Send + Sync>,
     locks: Vec<(*mut Locked, Access)>,
     vals: Vec<(*mut dyn Obj, Access)>,
 }
+// This seems janky, but I think it's barely sound?
+// locks, vals: Only modified through a &mut reference.
+// run: Well, I've put Send+Sync bounds on everything.
+unsafe impl Send for Kernel {}
+unsafe impl Sync for Kernel {}
 impl Kernel {
     pub fn new<Dump, K: KernelFn<Dump>>(mut k: K) -> Self {
         let mut resources = vec![];
@@ -164,7 +169,7 @@ macro_rules! impl_kernel {
         #[allow(non_snake_case)]
         unsafe impl<$($A,)* X> KernelFn<($($A,)*)> for X
         where
-            X: 'static,
+            X: 'static + Send + Sync,
             X: FnMut($($A),*),
             $($A: Extract,)*
         {

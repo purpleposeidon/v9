@@ -14,7 +14,7 @@ impl<M: TableMarker, T> Default for Column<M, T> {
         Self::new()
     }
 }
-impl<M: TableMarker, T: 'static> Obj for Column<M, T> {}
+impl<M: TableMarker, T: 'static + Send + Sync> Obj for Column<M, T> {}
 impl<M: TableMarker, T> Column<M, T> {
     pub fn new() -> Self {
         Column {
@@ -124,7 +124,7 @@ impl<'a, M: TableMarker, T> WriteColumn<'a, M, T> {
     }
 }
 
-unsafe impl<'a, M, T> ExtractOwned for ReadColumn<'a, M, T>
+unsafe impl<'a, M, T: Send + Sync> ExtractOwned for ReadColumn<'a, M, T>
 where
     M: TableMarker,
     T: 'static,
@@ -141,7 +141,7 @@ where
 unsafe impl<'a, M, T> Extract for EditColumn<'a, M, T>
 where
     M: TableMarker,
-    T: 'static,
+    T: 'static + Send + Sync,
     T: Clone,
 {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
@@ -184,7 +184,7 @@ where
 unsafe impl<'a, M, T> Extract for WriteColumn<'a, M, T>
 where
     M: TableMarker,
-    T: 'static,
+    T: 'static + Send + Sync,
 {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<Column<M, T>>(), Access::Write)

@@ -19,8 +19,8 @@ impl<M: TableMarker, T: Ord> Default for ColumnIndex<M, T> {
         }
     }
 }
-impl<M: TableMarker, T: 'static + Ord> Obj for ColumnIndex<M, T> {}
-unsafe impl<'a, M: TableMarker, T: 'static + Ord> Extract for &'a ColumnIndex<M, T> {
+impl<M: TableMarker, T: 'static + Send + Sync + Ord> Obj for ColumnIndex<M, T> {}
+unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a ColumnIndex<M, T> {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<ColumnIndex<M, T>>(), Access::Read)
     }
@@ -32,7 +32,7 @@ unsafe impl<'a, M: TableMarker, T: 'static + Ord> Extract for &'a ColumnIndex<M,
         *owned
     }
 }
-unsafe impl<'a, M: TableMarker, T: 'static + Ord> Extract for &'a mut ColumnIndex<M, T> {
+unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a mut ColumnIndex<M, T> {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<ColumnIndex<M, T>>(), Access::Write)
     }
@@ -47,7 +47,7 @@ unsafe impl<'a, M: TableMarker, T: 'static + Ord> Extract for &'a mut ColumnInde
 impl Universe {
     pub fn add_index<M: TableMarker, T>(&mut self)
     where
-        T: 'static + Ord + Copy,
+        T: 'static + Send + Sync + Ord + Copy,
     {
         // 1. Add the index.
         // Col<M, T>
@@ -115,10 +115,10 @@ impl Universe {
         E: Obj,
     {
         let mut kernel = Kernel::new(f);
-        self.add_tracker(Box::new(move |universe: &Universe, ev: &E| {
+        self.add_tracker(move |universe: &Universe, ev: &E| {
             kernel.push_arg(ev);
             universe.run(&mut kernel);
-        }));
+        });
     }
 }
 

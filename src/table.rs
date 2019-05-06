@@ -9,7 +9,7 @@ pub struct TableHeader {
     pub columns: Vec<TypeId>,
 }
 impl Obj for TableHeader {}
-pub trait TableMarker: Default + Copy + 'static {
+pub trait TableMarker: 'static + Default + Copy + Send + Sync {
     const NAME: Name;
     type RawId: Raw;
     fn header() -> TableHeader;
