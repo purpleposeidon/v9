@@ -14,6 +14,8 @@
 
 #[macro_use]
 extern crate mopa;
+#[doc(hidden)]
+pub extern crate paste;
 
 // FIXME: Use UniquePtr, etc...?
 // FIXME: Add universe.deny(TypeId) to allow constraints like "table is not sparse"

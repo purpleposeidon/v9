@@ -235,7 +235,7 @@ macro_rules! context {
             $($cvis:vis $cn:ident: $cty:path,)*
         }
     ) => {
-        paste::item! {
+        $crate::paste::item! {
             $vis use self::[<_v9_impl_ $name>]::$name;
             mod [<_v9_impl_ $name>] {
                 use $crate::prelude_macro::*;
