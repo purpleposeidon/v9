@@ -1,5 +1,3 @@
-use v9::prelude::*;
-
 v9::table! {
     pub struct boats {
         pub name: &'static str,

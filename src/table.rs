@@ -151,182 +151,197 @@ macro_rules! table {
     ) => {
         #[allow(non_camel_case_types, dead_code, non_upper_case_globals, non_snake_case)]
         $vis mod $name {
-            #[allow(unused_imports)]
-            use super::*;
-            use $crate::prelude_macro::*;
-
-            pub const NAME: Name = stringify!($name);
-            pub type RowId = IdV9<Marker>;
-            pub type Ids = IdList<Marker>;
-            pub const FIRST: IdV9<Marker> = IdV9(0);
-            pub const INVALID: IdV9<Marker> = IdV9(<$raw as Raw>::LAST);
-            #[derive(Default, Copy, Clone)]
-            pub struct Marker;
-            impl fmt::Debug for Marker {
-                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                    write!(f, stringify!($name))
-                }
-            }
-            impl fmt::Display for Marker {
-                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                    write!(f, stringify!($name))
-                }
-            }
-            impl $crate::table::TableMarker for Marker {
-                const NAME: Name = NAME;
-                type RawId = $raw;
-                fn header() -> TableHeader {
-                    TableHeader {
-                        name: NAME,
-                        marker: TypeId::of::<Marker>(),
-                        columns: vec![
-                            $(TypeId::of::<$cty>()),*
-                        ],
+            // Annoyingly, we have to firewall out v9 types from the user's.
+            // We could do `$crate::prelude_macro::Thing` instead but it's horrifically ugly, and
+            // it gets *everywhere*.
+            mod in_v9 {
+                use $crate::prelude_macro::*;
+                use super::in_user::{Read, Write, Edit, Row, RowRef};
+                pub const NAME: &'static str = stringify!($name);
+                pub type RowId = IdV9<Marker>;
+                pub type Ids = IdList<Marker>;
+                pub const FIRST: IdV9<Marker> = IdV9(0);
+                pub const INVALID: IdV9<Marker> = IdV9(<$raw as Raw>::LAST);
+                #[derive(Default, Copy, Clone)]
+                pub struct Marker;
+                impl fmt::Debug for Marker {
+                    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                        write!(f, stringify!($name))
                     }
                 }
-                fn register(universe: &mut Universe) {
-                    universe.add_mut(TypeId::of::<Marker>(), Self::header());
-                    universe.add_mut(TypeId::of::<IdList<Marker>>(), IdList::<Marker>::default());
-                    // Interesting that we can't have duplicate types, hmm?
-                    $(universe.add_mut(TypeId::of::<Column<Marker, $cty>>(), Column::<Marker, $cty>::new());)*
-                    $({
-                        type T = $cty;
-                        T::__v9_link_foreign_key::<Marker>(universe);
-                    })*
+                impl fmt::Display for Marker {
+                    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                        write!(f, stringify!($name))
+                    }
+                }
+
+                pub mod names {
+                    $(pub const $cn: &'static str = concat!(stringify!($table), ".", stringify!($cn));)*
+                }
+
+                impl<'a> Read<'a> {
+                    pub fn clone_row(&self, i: impl Check<'a, M=Marker>) -> Row {
+                        Row {
+                            $($cn: self.$cn[i].clone(),)*
+                        }
+                    }
+                    pub fn ref_row(&self, i: impl Check<'a, M=Marker>) -> RowRef {
+                        RowRef {
+                            $($cn: &self.$cn[i],)*
+                        }
+                    }
+                    pub fn len(&self) -> usize {
+                        $crate::table! {@first $({
+                            self.$cn.col.data.len()
+                        })*}
+                    }
+                    pub fn iter_all(&self) -> UncheckedIdRange<Marker> {
+                        let end = self.len();
+                        IdRange::to(RowId::from_usize(end))
+                    }
+                    pub fn iter(&self) -> CheckedIter<Marker> {
+                        unsafe {
+                            self.__v9__iter.iter_by_len(self.len())
+                        }
+                    }
+                }
+                impl<'a> Edit<'a> {
+                    pub fn len(&self) -> usize {
+                        $crate::table! {@first $({
+                            self.$cn.col.data.len()
+                        })*}
+                    }
+                    pub fn iter_all(&self) -> IdRange<RowId> {
+                        let end = self.len();
+                        IdRange::to(RowId::from_usize(end))
+                    }
+                }
+                impl<'a> Write<'a> {
+                    pub fn len(&self) -> usize {
+                        $crate::table! {@first $({
+                            self.$cn.col.data.len()
+                        })*}
+                    }
+                    pub fn reserve(&mut self, n: usize) {
+                        unsafe {
+                            $(self.$cn.col.get_mut().data.reserve(n);)*
+                        }
+                    }
+                    pub fn push(&mut self, row: Row) -> RowId {
+                        let i = self.len();
+                        unsafe {
+                            $(self.$cn.col.get_mut().data.push(row.$cn);)*
+                        }
+                        RowId::from_usize(i)
+                    }
+                    pub fn borrow(&self) -> Read {
+                        Read {
+                            $($cn: self.$cn.borrow(),)*
+                            __v9__iter: self.__v9__iter, // FIXME: Dum name
+                        }
+                    }
+                    pub fn remove(&mut self, i: impl Into<RowId>) {
+                        self.__v9__iter.deleting.get_mut().push(i.into());
+                    }
+                    pub fn iter_all(&self) -> IdRange<RowId> {
+                        let end = self.len();
+                        IdRange::to(RowId::from_usize(end))
+                    }
+                    pub fn iter(&self) -> CheckedIter<Marker> {
+                        unsafe {
+                            self.__v9__iter.iter_by_len(self.len())
+                        }
+                    }
                 }
             }
-
-            #[derive(Debug, Clone)]
-            pub struct Row {
-                $(pub $cn: $cty,)*
-            }
-            #[derive(Debug, Clone)]
-            pub struct RowRef<'a> {
-                $(pub $cn: &'a $cty,)*
-            }
-            pub mod names {
-                $(pub const $cn: &'static str = concat!(stringify!($table), ".", stringify!($cn));)*
-            }
-            pub mod read {
+            mod in_user {
                 #[allow(unused_imports)]
                 use super::super::*;
-                $(pub type $cn<'a> = super::ReadColumn<'a, super::Marker, $cty>;)*
-                pub type __V9__Iter<'a> = &'a super::IdList<super::Marker>;
-                $crate::context! {
-                    pub struct __Read {
-                        $(pub $cn: $cn,)*
-                        pub(in super::super) __v9__iter: __V9__Iter,
-                    }
-                }
-            }
-            pub use self::read::__Read as Read;
-            pub mod edit {
-                #[allow(unused_imports)]
-                use super::super::*;
-                $(pub type $cn<'a> = super::EditColumn<'a, super::Marker, $cty>;)*
-                pub type __V9__Iter<'a> = &'a mut super::IdList<super::Marker>;
-                $crate::context! {
-                    pub struct __Edit {
-                        $(pub $cn: $cn,)*
-                        pub(in super::super) __v9__iter: __V9__Iter,
-                    }
-                }
-            }
-            pub use self::edit::__Edit as Edit;
-            pub mod write {
-                #[allow(unused_imports)]
-                use super::super::*;
-                $(pub type $cn<'a> = super::WriteColumn<'a, super::Marker, $cty>;)*
-                pub type __V9__Iter<'a> = &'a mut super::IdList<super::Marker>;
-                $crate::context! {
-                    pub struct __Write {
-                        $(pub $cn: $cn,)*
-                        pub(in super::super) __v9__iter: __V9__Iter,
-                    }
-                }
-            }
-            pub use self::write::__Write as Write;
-            pub use self::write::__V9__Iter as List;
 
-            impl<'a> Read<'a> {
-                pub fn clone_row(&self, i: impl Check<'a, M=Marker>) -> Row {
-                    Row {
-                        $($cn: self.$cn[i].clone(),)*
+                impl $crate::prelude_macro::TableMarker for super::Marker {
+                    const NAME: &'static str = super::in_v9::NAME;
+                    type RawId = $raw;
+                    fn header() -> $crate::prelude_macro::TableHeader {
+                        $crate::prelude_macro::TableHeader {
+                            name: Self::NAME,
+                            marker: $crate::prelude_macro::TypeId::of::<super::Marker>(),
+                            columns: vec![
+                                $($crate::prelude_macro::TypeId::of::<$cty>()),*
+                            ],
+                        }
+                    }
+                    fn register(universe: &mut $crate::prelude_macro::Universe) {
+                        universe.add_mut($crate::prelude_macro::TypeId::of::<super::Marker>(), Self::header());
+                        universe.add_mut(
+                            $crate::prelude_macro::TypeId::of::<$crate::prelude_macro::IdList<super::Marker>>(),
+                            $crate::prelude_macro::IdList::<super::Marker>::default(),
+                        );
+                        // Interesting that we can't have duplicate types, hmm?
+                        $(universe.add_mut(
+                                $crate::prelude_macro::TypeId::of::<$crate::prelude_macro::Column<super::Marker, $cty>>(),
+                                $crate::prelude_macro::Column::<super::Marker, $cty>::new(),
+                        );)*
+                        use $crate::prelude_macro::ForeignKey as _;
+                        $({
+                            type T = $cty;
+                            T::__v9_link_foreign_key::<super::Marker>(universe);
+                        })*
                     }
                 }
 
-                pub fn ref_row(&self, i: impl Check<'a, M=Marker>) -> RowRef {
-                    RowRef {
-                        $($cn: &self.$cn[i],)*
+                #[derive(Debug, Clone)]
+                pub struct Row {
+                    $(pub $cn: $cty,)*
+                }
+                #[derive(Debug, Clone)]
+                pub struct RowRef<'a> {
+                    $(pub $cn: &'a $cty,)*
+                }
+
+                pub mod read {
+                    #[allow(unused_imports)]
+                    use super::super::super::*;
+                    $(pub type $cn<'a> = $crate::prelude_macro::ReadColumn<'a, super::super::in_v9::Marker, $cty>;)*
+                    pub type __V9__Iter<'a> = &'a $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
+                    $crate::context! {
+                        pub struct __Read {
+                            $(pub $cn: $cn,)*
+                            pub(in super::super::super) __v9__iter: __V9__Iter,
+                        }
                     }
                 }
-
-                pub fn len(&self) -> usize {
-                    $crate::table! {@first $({
-                        self.$cn.col.data.len()
-                    })*}
-                }
-
-                pub fn iter_all(&self) -> UncheckedIdRange<Marker> {
-                    let end = self.len();
-                    IdRange::to(RowId::from_usize(end))
-                }
-
-                pub fn iter(&self) -> CheckedIter<Marker> {
-                    unsafe {
-                        self.__v9__iter.iter_by_len(self.len())
+                pub use self::read::__Read as Read;
+                pub mod edit {
+                    #[allow(unused_imports)]
+                    use super::super::super::*;
+                    $(pub type $cn<'a> = $crate::prelude_macro::EditColumn<'a, super::super::in_v9::Marker, $cty>;)*
+                    pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
+                    $crate::context! {
+                        pub struct __Edit {
+                            $(pub $cn: $cn,)*
+                            pub(in super::super::super) __v9__iter: __V9__Iter,
+                        }
                     }
                 }
+                pub use self::edit::__Edit as Edit;
+                pub mod write {
+                    #[allow(unused_imports)]
+                    use super::super::super::*;
+                    $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, $cty>;)*
+                    pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
+                    $crate::context! {
+                        pub struct __Write {
+                            $(pub $cn: $cn,)*
+                            pub(in super::super::super) __v9__iter: __V9__Iter,
+                        }
+                    }
+                }
+                pub use self::write::__Write as Write;
+                pub use self::write::__V9__Iter as List;
             }
-            impl<'a> Edit<'a> {
-                pub fn len(&self) -> usize {
-                    $crate::table! {@first $({
-                        self.$cn.col.data.len()
-                    })*}
-                }
-
-                pub fn iter_all(&self) -> IdRange<RowId> {
-                    let end = self.len();
-                    IdRange::to(RowId::from_usize(end))
-                }
-            }
-            impl<'a> Write<'a> {
-                pub fn len(&self) -> usize {
-                    $crate::table! {@first $({
-                        self.$cn.col.data.len()
-                    })*}
-                }
-                pub fn reserve(&mut self, n: usize) {
-                    unsafe {
-                        $(self.$cn.col.get_mut().data.reserve(n);)*
-                    }
-                }
-                pub fn push(&mut self, row: Row) -> RowId {
-                    let i = self.len();
-                    unsafe {
-                        $(self.$cn.col.get_mut().data.push(row.$cn);)*
-                    }
-                    RowId::from_usize(i)
-                }
-                pub fn borrow(&self) -> Read {
-                    Read {
-                        $($cn: self.$cn.borrow(),)*
-                        __v9__iter: self.__v9__iter, // FIXME: Dum name
-                    }
-                }
-                pub fn remove(&mut self, i: impl Into<RowId>) {
-                    self.__v9__iter.deleting.get_mut().push(i.into());
-                }
-                pub fn iter_all(&self) -> IdRange<RowId> {
-                    let end = self.len();
-                    IdRange::to(RowId::from_usize(end))
-                }
-                pub fn iter(&self) -> CheckedIter<Marker> {
-                    unsafe {
-                        self.__v9__iter.iter_by_len(self.len())
-                    }
-                }
-            }
+            pub use self::in_v9::*;
+            pub use self::in_user::*;
+            // These might conflict, but then at least you'd deserve it.
         }
     };
 }
