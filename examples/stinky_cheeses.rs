@@ -1,3 +1,4 @@
+
 // Declare a couple tables.
 v9::table! {
     #[raw_index(u64)]
@@ -21,7 +22,7 @@ fn main() {
     let mut universe = Universe::new();
 
     // But it doesn't know about the tables, so we must register them.
-    use v9::prelude::TableMarker;
+    use v9::prelude::Register;
     cheeses::Marker::register(&mut universe);
     warehouses::Marker::register(&mut universe);
 

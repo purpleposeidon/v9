@@ -530,6 +530,8 @@ mod test_run_list {
         fn header() -> TableHeader {
             unimplemented!()
         }
+    }
+    impl Register for M {
         fn register(_universe: &mut Universe) {
             unimplemented!()
         }

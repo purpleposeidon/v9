@@ -9,11 +9,10 @@ pub struct TableHeader {
     pub columns: Vec<TypeId>,
 }
 impl Obj for TableHeader {}
-pub trait TableMarker: 'static + Default + Copy + Send + Sync {
+pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register {
     const NAME: Name;
     type RawId: Raw;
     fn header() -> TableHeader;
-    fn register(universe: &mut Universe);
 }
 
 /// Defines a table. This is the most important item in the crate!
@@ -43,7 +42,7 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync {
 ///     let mut universe = Universe::new();
 ///
 ///     // But it doesn't know about the tables, so we must register them.
-///     use v9::prelude::TableMarker;
+///     use v9::prelude::Register;
 ///     cheeses::Marker::register(&mut universe);
 ///     warehouses::Marker::register(&mut universe);
 ///
@@ -270,8 +269,13 @@ macro_rules! table {
                             ],
                         }
                     }
+                }
+                impl $crate::prelude_macro::Register for super::Marker {
                     fn register(universe: &mut $crate::prelude_macro::Universe) {
-                        universe.add_mut($crate::prelude_macro::TypeId::of::<super::Marker>(), Self::header());
+                        universe.add_mut(
+                            $crate::prelude_macro::TypeId::of::<super::Marker>(),
+                            <Self as $crate::prelude_macro::TableMarker>::header(),
+                        );
                         universe.add_mut(
                             $crate::prelude_macro::TypeId::of::<$crate::prelude_macro::IdList<super::Marker>>(),
                             $crate::prelude_macro::IdList::<super::Marker>::default(),

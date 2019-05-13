@@ -280,3 +280,7 @@ macro_rules! context {
         }
     };
 }
+
+pub trait Register {
+    fn register(universe: &mut Universe);
+}

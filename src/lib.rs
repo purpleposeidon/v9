@@ -34,7 +34,7 @@ pub mod linkage;
 pub mod util;
 
 pub mod prelude {
-    pub use crate::object::Universe;
+    pub use crate::object::{Universe, Register};
     pub use crate::table::TableMarker;
 }
 
@@ -43,7 +43,7 @@ pub mod prelude_macro {
     pub use crate::extract::*;
     pub use crate::id::{Check, CheckedIter, Id as IdV9, IdList, IdRange, Raw, UncheckedIdRange};
     pub use crate::linkage::ForeignKey;
-    pub use crate::object::Universe;
+    pub use crate::object::{Universe, Register};
     pub use crate::table::{TableHeader, TableMarker};
     pub use std::any::TypeId;
     pub use std::fmt;

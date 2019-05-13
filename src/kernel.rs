@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
+        // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
             {
                 'again: loop {
