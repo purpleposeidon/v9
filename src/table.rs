@@ -131,6 +131,7 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register {
 macro_rules! table {
     (@first $x:tt $($_xs:tt)*) => { $x };
     (
+        $(#[doc = $doc:literal])*
         $vis:vis struct $name:ident {
             $(
                 $(#[$cmeta:meta])*
@@ -139,6 +140,7 @@ macro_rules! table {
         }
     ) => {
         $crate::table! {
+            $(#[doc = $doc])*
             #[raw_index(u32)]
             $vis struct $name {
                 $(
@@ -149,6 +151,7 @@ macro_rules! table {
         }
     };
     (
+        $(#[doc = $doc:literal])*
         #[raw_index($raw:ty)]
         $vis:vis struct $name:ident {
             $(
@@ -302,6 +305,7 @@ macro_rules! table {
                     }
                 }
 
+                $(#[doc = $doc])*
                 #[derive(Debug, Clone)]
                 pub struct Row {
                     $(
