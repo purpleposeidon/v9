@@ -161,6 +161,7 @@ macro_rules! table {
         }
     ) => {
         #[allow(non_camel_case_types, dead_code, non_upper_case_globals, non_snake_case)]
+        $(#[doc = $doc])*
         $vis mod $name {
             // Annoyingly, we have to firewall out v9 types from the user's.
             // We could do `$crate::prelude_macro::Thing` instead but it's horrifically ugly, and
@@ -169,10 +170,13 @@ macro_rules! table {
                 use $crate::prelude_macro::*;
                 use super::in_user::{Read, Write, Edit, Row, RowRef};
                 pub const NAME: &'static str = stringify!($name);
+                /// A strongly typed index into the table. "Pre-checked" ids are available.
                 pub type RowId = IdV9<Marker>;
+                /// The valid IDs. Kernels should take this by reference.
                 pub type Ids = IdList<Marker>;
                 pub const FIRST: IdV9<Marker> = IdV9(0);
                 pub const INVALID: IdV9<Marker> = IdV9(<$raw as Raw>::LAST);
+                /// Holds static information about the table.
                 #[derive(Default, Copy, Clone)]
                 pub struct Marker;
                 impl fmt::Debug for Marker {
@@ -305,7 +309,7 @@ macro_rules! table {
                     }
                 }
 
-                $(#[doc = $doc])*
+                /// An owned copy of a row, AOS layout.
                 #[derive(Debug, Clone)]
                 pub struct Row {
                     $(
@@ -313,16 +317,19 @@ macro_rules! table {
                         pub $cn: $cty,
                     )*
                 }
+                /// A reference to every value in a row.
                 #[derive(Debug, Clone)]
                 pub struct RowRef<'a> {
                     $(pub $cn: &'a $cty,)*
                 }
 
+                /// Read an individual column.
                 pub mod read {
                     #[allow(unused_imports)]
                     use super::super::super::*;
                     $(pub type $cn<'a> = $crate::prelude_macro::ReadColumn<'a, super::super::in_v9::Marker, $cty>;)*
                     pub type __V9__Iter<'a> = &'a $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
+                    /// Read-access to the rows in a table.
                     $crate::context! {
                         pub struct __Read {
                             $(pub $cn: $cn,)*
@@ -331,27 +338,36 @@ macro_rules! table {
                     }
                 }
                 pub use self::read::__Read as Read;
+                /// Edit an individual column.
                 pub mod edit {
                     #[allow(unused_imports)]
                     use super::super::super::*;
                     $(pub type $cn<'a> = $crate::prelude_macro::EditColumn<'a, super::super::in_v9::Marker, $cty>;)*
+                    #[doc(hidden)]
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     $crate::context! {
+                        /// Write-access to the rows in a table.
                         pub struct __Edit {
                             $(pub $cn: $cn,)*
+                            #[doc(hidden)]
                             pub(in super::super::super) __v9__iter: __V9__Iter,
                         }
                     }
                 }
                 pub use self::edit::__Edit as Edit;
+                /// Write an individual column.
+                // Uhm. Why would you want this!?
                 pub mod write {
                     #[allow(unused_imports)]
                     use super::super::super::*;
                     $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, $cty>;)*
+                    /// Lists valid IDs.
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     $crate::context! {
+                        /// Structural access to the table.
                         pub struct __Write {
                             $(pub $cn: $cn,)*
+                            #[doc(hidden)]
                             pub(in super::super::super) __v9__iter: __V9__Iter,
                         }
                     }

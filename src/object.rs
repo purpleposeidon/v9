@@ -231,8 +231,12 @@ mod test {
 #[macro_export]
 macro_rules! context {
     (
+        $(#[$meta:meta])*
         $vis:vis struct $name:ident {
-            $($cvis:vis $cn:ident: $cty:path,)*
+            $(
+                $(#[$cmeta:meta])*
+                $cvis:vis $cn:ident: $cty:path,
+            )*
         }
     ) => {
         $crate::paste::item! {
@@ -250,8 +254,12 @@ macro_rules! context {
                 mod owned {
                     $(pub type $cn = <super::cn::$cn<'static> as super::Extract>::Owned;)*
                 }
+                $(#[$meta])*
                 pub struct $name<'a> {
-                    $($cvis $cn: self::cn::$cn<'a>,)*
+                    $(
+                        $(#[$cmeta])*
+                        $cvis $cn: self::cn::$cn<'a>,
+                    )*
                 }
                 pub struct __OwnedContext {
                     $($cn: self::owned::$cn,)*
