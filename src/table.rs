@@ -132,20 +132,29 @@ macro_rules! table {
     (@first $x:tt $($_xs:tt)*) => { $x };
     (
         $vis:vis struct $name:ident {
-            $(pub $cn:ident: $cty:ty,)*
+            $(
+                $(#[$cmeta:meta])*
+                pub $cn:ident: $cty:ty,
+            )*
         }
     ) => {
         $crate::table! {
             #[raw_index(u32)]
             $vis struct $name {
-                $(pub $cn: $cty,)*
+                $(
+                    $(#[$cmeta])*
+                    pub $cn: $cty,
+                )*
             }
         }
     };
     (
         #[raw_index($raw:ty)]
         $vis:vis struct $name:ident {
-            $(pub $cn:ident: $cty:ty,)*
+            $(
+                $(#[$cmeta:meta])*
+                pub $cn:ident: $cty:ty,
+            )*
         }
     ) => {
         #[allow(non_camel_case_types, dead_code, non_upper_case_globals, non_snake_case)]
@@ -295,7 +304,10 @@ macro_rules! table {
 
                 #[derive(Debug, Clone)]
                 pub struct Row {
-                    $(pub $cn: $cty,)*
+                    $(
+                        $(#[$cmeta])*
+                        pub $cn: $cty,
+                    )*
                 }
                 #[derive(Debug, Clone)]
                 pub struct RowRef<'a> {
