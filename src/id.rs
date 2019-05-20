@@ -426,6 +426,11 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
     }
 }
 
+/// Stores `Id`s with great efficiency.
+/// Runs are stored like a `Range`.
+/// (In the case of a single run, zero allocation is needed.)
+/// Non-contiguous `Id`s have the same memory overhead as a `Vec`.
+/// However, the `Id`s must be pushed in order.
 #[derive(Clone, Debug, Default)]
 pub struct RunList<M: TableMarker> {
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
@@ -441,6 +446,8 @@ impl<M: TableMarker> RunList<M> {
                 a < id && b < id,
                 "RunList entries must be in increasing order"
             );
+            // We could possibly relax the ordering requirement.
+            // In this case we should provide `defrag()` method.
             match a.cmp(&b) {
                 Ordering::Less => {
                     if b.step(1) == id {
@@ -467,25 +474,25 @@ impl<M: TableMarker> RunList<M> {
         };
         self.data.push(new);
     }
-    pub fn iter(&self) -> RunIter<M> {
+    pub fn iter(&self) -> RunListIter<M> {
         self.into_iter()
     }
 }
 impl<'a, M: TableMarker> IntoIterator for &'a RunList<M> {
     type Item = Id<M>;
-    type IntoIter = RunIter<'a, M>;
+    type IntoIter = RunListIter<'a, M>;
     fn into_iter(self) -> Self::IntoIter {
-        RunIter {
+        RunListIter {
             buffer: None,
             data: &self.data[..],
         }
     }
 }
-pub struct RunIter<'a, M: TableMarker> {
+pub struct RunListIter<'a, M: TableMarker> {
     buffer: Option<(Id<M>, Id<M>)>,
     data: &'a [(Id<M>, Id<M>)],
 }
-impl<'a, M: TableMarker> Iterator for RunIter<'a, M> {
+impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
     type Item = Id<M>;
     fn next(&mut self) -> Option<Self::Item> {
         let buff = if let Some(buff) = self.buffer.take() {
