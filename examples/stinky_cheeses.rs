@@ -1,10 +1,10 @@
 
 // Declare a couple tables.
 v9::table! {
-    #[raw_index(u64)]
+    #[row::derive(Copy)]
     pub struct cheeses {
         pub quantity: f64,
-        pub warehouse: crate::warehouses::RowId,
+        pub warehouse: crate::warehouses::Id,
         pub stinky: bool,
     }
 }

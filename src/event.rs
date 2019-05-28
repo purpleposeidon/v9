@@ -69,7 +69,7 @@ mod test_tracking {
     table! {
         pub struct sailors {
             pub name: Name,
-            pub ship: ships::RowId,
+            pub ship: ships::Id,
         }
     }
 

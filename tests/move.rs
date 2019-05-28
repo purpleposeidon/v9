@@ -4,7 +4,7 @@ v9::table! {
     #[raw_index(u64)]
     pub struct cheeses {
         pub quantity: f64,
-        pub warehouse: crate::warehouses::RowId,
+        pub warehouse: crate::warehouses::Id,
         pub stinky: bool,
     }
 }
@@ -63,7 +63,7 @@ fn moving() {
 
     universe.kmap(
         |mut warehouses: warehouses::Write| {
-            warehouses.remove(warehouses::RowId::new(0));
+            warehouses.remove(warehouses::Id::new(0));
         }
     );
 

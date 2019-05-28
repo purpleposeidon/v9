@@ -21,10 +21,9 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register {
 /// ```
 /// // Declare a couple tables.
 /// v9::table! {
-///     #[raw_index(u64)]
 ///     pub struct cheeses {
 ///         pub quantity: f64,
-///         pub warehouse: crate::warehouses::RowId,
+///         pub warehouse: crate::warehouses::Id,
 ///         pub stinky: bool,
 ///     }
 /// }
@@ -120,11 +119,43 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register {
 /// # Details
 ///
 /// There's several things to be aware of.
-/// 1. Naming. The item name should be lowercase (it becomes a module), and plural. The columns
-///    should be singular. (Unless it should be, like in `pub aliases: Vec<String>`.)
+/// 1. Naming. The item name should be lowercase (it becomes a module), and plural. The names of
+///    columns should be singular. (Unless it should be, like in `pub aliases: Vec<String>`.)
 /// 2. The macro syntax kind of looks like a struct… but it very much is not.
 /// 3. Type paths should be absolute, not relative.
 /// 4. The struct's visiblity may be anything, but the field's visiblity must be `pub`.
+///
+/// # Meta-Attributes
+/// There are certain meta-attributes that may be placed on the "struct". They must be provided in the order given here:
+/// 1. `#[doc]`*. Places documentation on the module.
+/// 2. `#[row::<meta>]`* Passes meta-attributes to the `Row`; eg `#[row(derive(serde::Serialize))]`.
+///    `#[derive(Clone, Debug)]` is always provided.
+/// 3. `#[raw_index(u32)]`. Defines the type used to index. The default is `u32`. Must be [`Raw`].
+///    The last index is generally considered to be 'invalid'.
+///
+/// Any attributes on the columns will be passed as-is to the fields on `Row`.
+///
+/// [`Raw`]: id/trait.Raw.html
+///
+/// ## Example
+///
+/// ```
+/// v9::table! {
+///     /// Some of our many fine cheeses!
+///     #[row::derive(Copy, PartialEq, Eq)]
+///     #[row::derive(Hash)]
+///     #[raw_index(u8)]
+///     pub struct cheeses {
+///         /// We have so much cheese!
+///         pub quantity: u64,
+///         /// P. U.!
+///         pub stinky: bool,
+///         /// If we were deriving serde, we could uncomment this meta-attribute.
+///         //#[serde::skip]
+///         pub on_fire: Option<bool>,
+///     }
+/// }
+/// ```
 // FIXME: Maybe I should go for a more v11-style syntax?
 // FIXME: keep the stinky_cheeses example in sync or something...?
 #[macro_export]
@@ -132,6 +163,7 @@ macro_rules! table {
     (@first $x:tt $($_xs:tt)*) => { $x };
     (
         $(#[doc = $doc:literal])*
+        $(#[row::$row_meta:meta])*
         $vis:vis struct $name:ident {
             $(
                 $(#[$cmeta:meta])*
@@ -141,6 +173,7 @@ macro_rules! table {
     ) => {
         $crate::table! {
             $(#[doc = $doc])*
+            $(#[row::$row_meta])*
             #[raw_index(u32)]
             $vis struct $name {
                 $(
@@ -152,6 +185,7 @@ macro_rules! table {
     };
     (
         $(#[doc = $doc:literal])*
+        $(#[row::$row_meta:meta])*
         #[raw_index($raw:ty)]
         $vis:vis struct $name:ident {
             $(
@@ -171,8 +205,8 @@ macro_rules! table {
                 use super::in_user::{Read, Write, Edit, Row, RowRef};
                 pub const NAME: &'static str = stringify!($name);
                 /// A strongly typed index into the table. "Pre-checked" ids are available.
-                pub type RowId = IdV9<Marker>;
-                /// The valid IDs. Kernels should take this by reference.
+                pub type Id = IdV9<Marker>;
+                /// The valid IDs. Kernels should take this by reference. Prefer using `List`.
                 pub type Ids = IdList<Marker>;
                 pub const FIRST: IdV9<Marker> = IdV9(0);
                 pub const INVALID: IdV9<Marker> = IdV9(<$raw as Raw>::LAST);
@@ -212,7 +246,7 @@ macro_rules! table {
                     }
                     pub fn iter_all(&self) -> UncheckedIdRange<Marker> {
                         let end = self.len();
-                        IdRange::to(RowId::from_usize(end))
+                        IdRange::to(Id::from_usize(end))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         unsafe {
@@ -226,9 +260,9 @@ macro_rules! table {
                             self.$cn.col.data.len()
                         })*}
                     }
-                    pub fn iter_all(&self) -> IdRange<RowId> {
+                    pub fn iter_all(&self) -> IdRange<Id> {
                         let end = self.len();
-                        IdRange::to(RowId::from_usize(end))
+                        IdRange::to(Id::from_usize(end))
                     }
                 }
                 impl<'a> Write<'a> {
@@ -242,12 +276,12 @@ macro_rules! table {
                             $(self.$cn.col.get_mut().data.reserve(n);)*
                         }
                     }
-                    pub fn push(&mut self, row: Row) -> RowId {
+                    pub fn push(&mut self, row: Row) -> Id {
                         let i = self.len();
                         unsafe {
                             $(self.$cn.col.get_mut().data.push(row.$cn);)*
                         }
-                        RowId::from_usize(i)
+                        Id::from_usize(i)
                     }
                     pub fn borrow(&self) -> Read {
                         Read {
@@ -255,12 +289,12 @@ macro_rules! table {
                             __v9__iter: self.__v9__iter, // FIXME: Dum name
                         }
                     }
-                    pub fn remove(&mut self, i: impl Into<RowId>) {
+                    pub fn remove(&mut self, i: impl Into<Id>) {
                         self.__v9__iter.deleting.get_mut().push(i.into());
                     }
-                    pub fn iter_all(&self) -> IdRange<RowId> {
+                    pub fn iter_all(&self) -> IdRange<Id> {
                         let end = self.len();
-                        IdRange::to(RowId::from_usize(end))
+                        IdRange::to(Id::from_usize(end))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         unsafe {
@@ -311,6 +345,7 @@ macro_rules! table {
 
                 /// An owned copy of a row, AOS layout.
                 #[derive(Debug, Clone)]
+                $(#[$row_meta])*
                 pub struct Row {
                     $(
                         $(#[$cmeta])*
