@@ -23,6 +23,7 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register {
 /// v9::table! {
 ///     pub struct cheeses {
 ///         pub quantity: f64,
+///         // NOTE: Absolute paths should be used.
 ///         pub warehouse: crate::warehouses::Id,
 ///         pub stinky: bool,
 ///     }

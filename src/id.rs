@@ -431,6 +431,11 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 /// (In the case of a single run, zero allocation is needed.)
 /// Non-contiguous `Id`s have the same memory overhead as a `Vec`.
 /// However, the `Id`s must be pushed in order.
+///
+/// If you are iterating over the rows in a table,
+/// you will need to use either the table's `Read`/`Write`/`Edit` `context!`.
+/// However if you only have a single row,
+/// you will need to take `&RunList` or `&mut RunList` as an argument.
 #[derive(Clone, Debug, Default)]
 pub struct RunList<M: TableMarker> {
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
