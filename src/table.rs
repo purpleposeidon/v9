@@ -359,6 +359,11 @@ macro_rules! table {
                     $(pub $cn: &'a $cty,)*
                 }
 
+                pub mod own {
+                    #[allow(unused_imports)]
+                    use super::super::super::*;
+                    $(pub type $cn = $crate::prelude_macro::Column<super::super::in_v9::Marker, $cty>;)*
+                }
                 /// Read an individual column.
                 pub mod read {
                     #[allow(unused_imports)]
