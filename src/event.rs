@@ -40,6 +40,7 @@ impl Universe {
         self.add_tracker_box(Box::new(f))
     }
     fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<FnMut(&Universe, &E) + Send + Sync>) {
+        // Can't use with() because object may not exist.
         let ty = TypeId::of::<Tracker<E>>();
         let mut objects = self.objects.write().unwrap();
         let obj = objects

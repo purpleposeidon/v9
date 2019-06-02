@@ -2,7 +2,8 @@ use crate::column::*;
 use crate::event::*;
 use crate::kernel::{Kernel, KernelArg, KernelFn};
 use crate::prelude_lib::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::any::{Any, TypeId};
 
 pub struct ColumnIndex<M: TableMarker, T: Ord> {
     pub map: BTreeMap<(T, Id<M>), ()>,
@@ -10,6 +11,12 @@ pub struct ColumnIndex<M: TableMarker, T: Ord> {
 impl<M: TableMarker, T: Ord + Clone> ColumnIndex<M, T> {
     pub fn full_range(t: T) -> StdRange<(T, Id<M>)> {
         (t.clone(), Id(M::RawId::ZERO))..(t, Id(M::RawId::LAST))
+    }
+    pub fn find<'a>(&'a self, t: T) -> impl Iterator<Item=Id<M>> + 'a {
+        self.map
+            .range(Self::full_range(t))
+            .map(|((_, i), _)| *i)
+
     }
 }
 impl<M: TableMarker, T: Ord> Default for ColumnIndex<M, T> {
@@ -109,7 +116,7 @@ impl Universe {
             },
         );
     }
-    fn tracker_with_arg<F, Dump, E>(&mut self, f: F)
+    pub fn tracker_with_arg<F, Dump, E>(&mut self, f: F)
     where
         F: KernelFn<Dump>,
         E: Obj,
@@ -158,5 +165,54 @@ impl<FM: TableMarker> Id<FM> {
                 }
             },
         );
+        universe.tracker_with_arg::<_, _, Select<FM>>(
+            |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>| {
+                // 8. Push the local ids of the foreign ids; we have them indexed.
+                let foreign: &RunList<FM> = if let Some(f) = ev.selection.get() { f } else { return; };
+                let mut got = vec![];
+                for fid in foreign.iter() {
+                    for lid in index.find(fid) {
+                        got.push(lid);
+                    }
+                }
+                got.sort();
+                got.dedup();
+                let mut out: Box<RunList<LM>> = ev.selection.ordered();
+                for i in got.into_iter() {
+                    out.push(i);
+                }
+                ev.selection.deliver(out);
+            },
+        );
     }
 }
+
+
+/// Holds a bunch of `RunList`s.
+pub struct Selectection {
+    pub seen: HashMap<TypeId, Box<Any + Send + Sync>>,
+}
+impl Selectection {
+    pub fn get<M: TableMarker>(&self) -> Option<&RunList<M>> {
+        let ty = TypeId::of::<M>();
+        self.seen.get(&ty)
+            .and_then(|a| a.downcast_ref())
+    }
+    pub fn ordered<M: TableMarker>(&mut self) -> Box<RunList<M>> {
+        let ty = TypeId::of::<M>();
+        self.seen.remove(&ty)
+            .and_then(|a| {
+                (a as Box<Any>).downcast().ok()
+            })
+            .unwrap_or_else(Default::default)
+    }
+    pub fn deliver<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
+        let ty = TypeId::of::<M>();
+        self.seen.insert(ty, ids);
+    }
+}
+pub struct Select<FM> {
+    pub foreign_marker: FM,
+    pub selection: Selectection,
+}
+impl<FM: TableMarker> Obj for Select<FM> {}
