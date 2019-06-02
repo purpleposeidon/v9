@@ -433,9 +433,9 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 /// However, the `Id`s must be pushed in order.
 ///
 /// If you are iterating over the rows in a table,
-/// you will need to use either the table's `Read`/`Write`/`Edit` `context!`.
-/// However if you only have a single row,
-/// you will need to take `&RunList` or `&mut RunList` as an argument.
+/// it's easiest to use the table's `Read`, `Write`, or `Edit` `context!`.
+/// Otherwise you will need to take `&$table::Id` or `&mut $table::Id` as an argument to the
+/// `Kernel`.
 #[derive(Clone, Debug, Default)]
 pub struct RunList<M: TableMarker> {
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
@@ -479,6 +479,7 @@ impl<M: TableMarker> RunList<M> {
         };
         self.data.push(new);
     }
+    pub fn clear(&mut self) { self.data.clear() }
     pub fn iter(&self) -> RunListIter<M> {
         self.into_iter()
     }
