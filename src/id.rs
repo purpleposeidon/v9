@@ -441,6 +441,7 @@ pub struct RunList<M: TableMarker> {
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
 }
 impl<M: TableMarker> RunList<M> {
+    pub fn is_empty(&self) -> bool { self.iter().next().is_none() }
     pub fn push(&mut self, id: Id<M>) {
         // (a < b) --> a..=b
         // (a = b) --> [a]
