@@ -189,10 +189,10 @@ impl<FM: TableMarker> Id<FM> {
 
 
 /// Holds a bunch of `RunList`s.
-pub struct Selectection {
+pub struct Selection {
     pub seen: HashMap<TypeId, Box<Any + Send + Sync>>,
 }
-impl Selectection {
+impl Selection {
     pub fn get<M: TableMarker>(&self) -> Option<&RunList<M>> {
         let ty = TypeId::of::<M>();
         self.seen.get(&ty)
@@ -213,6 +213,6 @@ impl Selectection {
 }
 pub struct Select<FM> {
     pub foreign_marker: FM,
-    pub selection: Selectection,
+    pub selection: Selection,
 }
 impl<FM: TableMarker> Obj for Select<FM> {}
