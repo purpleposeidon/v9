@@ -246,9 +246,11 @@ macro_rules! context {
                     pub use super::super::*;
                     $(pub use $cty as $cn;)*
                 }
+                #[allow(non_camel_case_types)]
                 mod cn {
                     $(pub type $cn<'a> = super::path::$cn<'a>;)*
                 }
+                #[allow(non_camel_case_types)]
                 mod owned {
                     $(pub type $cn = <super::cn::$cn<'static> as super::Extract>::Owned;)*
                 }
