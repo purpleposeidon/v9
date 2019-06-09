@@ -3,7 +3,7 @@ use crate::event::*;
 use crate::prelude_lib::*;
 use std::cell::RefCell;
 
-pub trait Raw: 'static + Copy + fmt::Debug + Ord + Send + Sync {
+pub trait Raw: 'static + Copy + fmt::Debug + Ord + Send + Sync + serde::Serialize + serde::de::DeserializeOwned {
     fn to_usize(self) -> usize;
     fn from_usize(x: usize) -> Self;
     fn offset(self, d: i8) -> Self;
@@ -32,6 +32,9 @@ mod raw_impl {
 
 /// A strongly typed row id.
 #[derive(Copy, Clone)]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(bound = "M: 'static")]
+#[serde(transparent)]
 pub struct Id<M: TableMarker>(pub M::RawId);
 impl<M: TableMarker> PartialEq for Id<M> {
     fn eq(&self, other: &Self) -> bool {
@@ -437,6 +440,7 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 /// Otherwise you will need to take `&$table::Id` or `&mut $table::Id` as an argument to the
 /// `Kernel`.
 #[derive(Clone, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct RunList<M: TableMarker> {
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
 }

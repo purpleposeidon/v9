@@ -5,7 +5,10 @@ use crate::prelude_lib::*;
 use std::hint::unreachable_unchecked;
 
 #[derive(Debug)]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct Column<M: TableMarker, T> {
+    #[serde(skip)]
     pub table_marker: M,
     pub data: Vec<T>,
 }
