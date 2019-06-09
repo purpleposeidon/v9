@@ -49,6 +49,20 @@ impl Universe {
         let map = &mut *self.objects.write().unwrap();
         Universe::insert(map, key, Locked::new(Box::new(obj)));
     }
+    pub fn remove<T: Obj>(&self, key: TypeId) -> Option<Box<dyn Obj>> {
+        self.objects
+            .write()
+            .unwrap()
+            .remove(&key)
+            .map(|l| l.into_inner())
+    }
+    pub fn remove_mut<T: Obj>(&mut self, key: TypeId) -> Option<Box<dyn Obj>> {
+        self.objects
+            .get_mut()
+            .unwrap()
+            .remove(&key)
+            .map(|l| l.into_inner())
+    }
     pub fn add_mut<T: Obj>(&mut self, key: TypeId, obj: T) {
         let map = &mut *self.objects.get_mut().unwrap();
         let obj = Locked::new(Box::new(obj));

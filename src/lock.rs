@@ -70,6 +70,14 @@ impl Locked {
         self.acquire(Access::Write);
         GuardMut { lock: self }
     }
+    pub fn into_inner(mut self) -> Box<dyn Obj> {
+        unsafe {
+            self.acquire(Access::Write);
+            let stuff = self.contents();
+            ::std::mem::forget(self);
+            Box::from_raw(stuff)
+        }
+    }
     // FIXME: How safe & sound are the guards?
 }
 impl Drop for Locked {
