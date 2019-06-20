@@ -6,29 +6,27 @@ use crate::prelude_lib::*;
 /// Event handlers for an event `E`.
 // FIXME: Events should use RunIter.
 pub struct Tracker<E: 'static + Send + Sync> {
-    pub handlers: Vec<Box<FnMut(&Universe, &E) + Send + Sync>>,
+    pub handlers: Vec<Box<FnMut(&Universe, &mut E) + Send + Sync>>,
 }
 impl<E: 'static + Send + Sync> Obj for Tracker<E> {}
 impl Universe {
-    pub fn submit_event<E: 'static + Send + Sync>(&self, e: &E) {
-        let ty = &mut TypeId::of::<Tracker<E>>();
-        unsafe {
-            let event = {
-                let mut objects = self.objects.write().unwrap();
-                if let Some(locked) = objects.get_mut(ty) {
-                    locked.acquire(Access::Write);
-                    let obj: &mut dyn Obj = &mut *locked.contents();
-                    obj.downcast_mut::<Tracker<E>>().unwrap()
-                } else {
-                    panic!("an event should not be created if there are no handlers");
-                }
-            };
-            for handler in &mut event.handlers {
-                handler(self, e);
+    pub fn submit_event<E: 'static + Send + Sync>(&self, e: &mut E) {
+        let ty = &TypeId::of::<Tracker<E>>();
+        let event = unsafe {
+            let mut objects = self.objects.write().unwrap();
+            if let Some(locked) = objects.get_mut(ty) {
+                locked.acquire(Access::Write);
+                let obj: &mut dyn Obj = &mut *locked.contents();
+                obj.downcast_mut::<Tracker<E>>().unwrap()
+            } else {
+                panic!("an event should not be created if there are no handlers");
             }
-            if (cfg!(debug) || cfg!(test)) && event.handlers.is_empty() {
-                panic!("if all handlers are removed from a tracker, it should be removed");
-            }
+        };
+        for handler in &mut event.handlers {
+            handler(self, e);
+        }
+        if (cfg!(debug) || cfg!(test)) && event.handlers.is_empty() {
+            panic!("if all handlers are removed from a tracker, it should be removed");
         }
         let mut objects = self.objects.write().unwrap();
         objects
@@ -36,10 +34,15 @@ impl Universe {
             .expect("lost locked object")
             .release(Access::Write);
     }
-    pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &E) + 'static + Send + Sync>(&self, f: F) {
+    pub fn is_tracked<E: 'static + Send + Sync>(&self) -> bool {
+        let ty = &TypeId::of::<Tracker<E>>();
+        let objects = self.objects.read().unwrap();
+        objects.get(ty).is_some()
+    }
+    pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &mut E) + 'static + Send + Sync>(&self, f: F) {
         self.add_tracker_box(Box::new(f))
     }
-    fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<FnMut(&Universe, &E) + Send + Sync>) {
+    fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<FnMut(&Universe, &mut E) + Send + Sync>) {
         // Can't use with() because object may not exist.
         let ty = TypeId::of::<Tracker<E>>();
         let mut objects = self.objects.write().unwrap();
@@ -146,7 +149,7 @@ mod test_tracking {
         universe.kmap(
             |ships: ships::List, names: ships::read::name, weight: ships::read::weight| {
                 let mut sunk = false;
-                for f in ships.removing(&names) {
+                for f in ships.removing() {
                     if weight[f] == 20 {
                         println!("The {} is sinking! Oh, the humanity!", names[f]);
                         f.remove();

@@ -4,6 +4,7 @@ use crate::kernel::{Kernel, KernelArg, KernelFn};
 use crate::prelude_lib::*;
 use std::collections::{BTreeMap, HashMap};
 use std::any::{Any, TypeId};
+use std::mem;
 
 pub struct ColumnIndex<M: TableMarker, T: Ord> {
     pub map: BTreeMap<(T, Id<M>), ()>,
@@ -64,7 +65,7 @@ impl Universe {
             ColumnIndex::<M, T>::default(),
         );
         // Next we add handlers for each event:
-        self.tracker_with_arg::<_, _, Pushed<M>>(
+        self.tracker_with_ref_arg::<_, _, Pushed<M>>(
             |ev: KernelArg<&Pushed<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
                 // 2. Insertion
                 // i = col.push(new)
@@ -75,7 +76,7 @@ impl Universe {
                 }
             },
         );
-        self.tracker_with_arg::<_, _, Edited<M, T>>(
+        self.tracker_with_ref_arg::<_, _, Edited<M, T>>(
             |ev: KernelArg<&Edited<M, T>>, index: &mut ColumnIndex<M, T>| {
                 // 3. Edit
                 // col[i] = new;
@@ -91,7 +92,7 @@ impl Universe {
                 }
             },
         );
-        self.tracker_with_arg::<_, _, Deleted<M>>(
+        self.tracker_with_ref_arg::<_, _, Deleted<M>>(
             |ev: KernelArg<&Deleted<M>>, index: &mut ColumnIndex<M, T>, col: ReadColumn<M, T>| {
                 // 4. Delete
                 // del col[i];
@@ -102,7 +103,7 @@ impl Universe {
                 }
             },
         );
-        self.tracker_with_arg::<_, _, Moved<M>>(
+        self.tracker_with_ref_arg::<_, _, Moved<M>>(
             |ev: KernelArg<&Moved<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
                 // 5. Moved
                 // col[i] -> col[j];
@@ -116,14 +117,25 @@ impl Universe {
             },
         );
     }
-    pub fn tracker_with_arg<F, Dump, E>(&mut self, f: F)
+    pub fn tracker_with_ref_arg<F, Dump, E>(&mut self, f: F)
     where
         F: KernelFn<Dump>,
         E: Obj,
     {
         let mut kernel = Kernel::new(f);
-        self.add_tracker(move |universe: &Universe, ev: &E| {
+        self.add_tracker(move |universe: &Universe, ev: &mut E| {
             kernel.push_arg(ev);
+            universe.run(&mut kernel);
+        });
+    }
+    pub fn tracker_with_mut_arg<F, Dump, E>(&mut self, f: F)
+    where
+        F: KernelFn<Dump>,
+        E: Obj,
+    {
+        let mut kernel = Kernel::new(f);
+        self.add_tracker(move |universe: &Universe, ev: &mut E| {
+            kernel.push_arg_mut(ev);
             universe.run(&mut kernel);
         });
     }
@@ -139,7 +151,7 @@ impl<X> ForeignKey for X {}
 impl<FM: TableMarker> Id<FM> {
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
         universe.add_index::<LM, Self>();
-        universe.tracker_with_arg::<_, _, Deleted<FM>>(
+        universe.tracker_with_ref_arg::<_, _, Deleted<FM>>(
             |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
                 // 6. Use the index to decide which IDs get the axe.
                 let deleting = list.deleting.get_mut();
@@ -153,7 +165,7 @@ impl<FM: TableMarker> Id<FM> {
                 }
             },
         );
-        universe.tracker_with_arg::<_, _, Moved<FM>>(
+        universe.tracker_with_ref_arg::<_, _, Moved<FM>>(
             |ev: KernelArg<&Moved<FM>>, index: &ColumnIndex<LM, Self>, mut col: EditColumn<LM, Self>| {
                 // 7. Use the index to update everyone point at moved things.
                 // The index also needs to be updated.
@@ -165,8 +177,9 @@ impl<FM: TableMarker> Id<FM> {
                 }
             },
         );
-        universe.tracker_with_arg::<_, _, Select<FM>>(
-            |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>| {
+        let mut is_tracked: Option<bool> = None;
+        universe.tracker_with_mut_arg::<_, _, Select<FM>>(
+            move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: *const Universe| {
                 // 8. Push the local ids of the foreign ids; we have them indexed.
                 let foreign: &RunList<FM> = if let Some(f) = ev.selection.get() { f } else { return; };
                 let mut got = vec![];
@@ -175,13 +188,26 @@ impl<FM: TableMarker> Id<FM> {
                         got.push(lid);
                     }
                 }
+                if got.is_empty() { return; }
                 got.sort();
+                // FIXME: See id.rs/timsort. 1) Are these runs? 2) Is timsort faster than unstable?
                 got.dedup();
                 let mut out: Box<RunList<LM>> = ev.selection.ordered();
                 for i in got.into_iter() {
                     out.push(i);
                 }
                 ev.selection.deliver(out);
+                unsafe {
+                    let universe: &Universe = &*universe;
+                    if is_tracked.is_none() {
+                        is_tracked = Some(universe.is_tracked::<Select<LM>>());
+                    }
+                    if let Some(false) = is_tracked { return; }
+                    let mut sub: Select<LM> = Default::default();
+                    mem::swap(&mut sub.selection, &mut ev.selection);
+                    universe.submit_event(&mut sub);
+                    mem::swap(&mut sub.selection, &mut ev.selection);
+                }
             },
         );
     }
@@ -189,6 +215,7 @@ impl<FM: TableMarker> Id<FM> {
 
 
 /// Holds a bunch of `RunList`s.
+#[derive(Debug, Default)]
 pub struct Selection {
     pub seen: HashMap<TypeId, Box<Any + Send + Sync>>,
 }
@@ -210,9 +237,23 @@ impl Selection {
         let ty = TypeId::of::<M>();
         self.seen.insert(ty, ids);
     }
+    pub fn from<FM: TableMarker>(sel: RunList<FM>) -> Self {
+        let mut seen = HashMap::new();
+        seen.insert(TypeId::of::<FM>(), Box::new(sel) as Box<Any + Send + Sync>);
+        Selection { seen }
+    }
 }
+#[derive(Default)]
 pub struct Select<FM> {
     pub foreign_marker: FM,
     pub selection: Selection,
+}
+impl<FM: TableMarker> Select<FM> {
+    pub fn from(sel: RunList<FM>) -> Self {
+        Select {
+            foreign_marker: FM::default(),
+            selection: Selection::from(sel)
+        }
+    }
 }
 impl<FM: TableMarker> Obj for Select<FM> {}

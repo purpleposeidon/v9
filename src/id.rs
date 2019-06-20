@@ -1,7 +1,7 @@
-use crate::column::ColumnInfo;
 use crate::event::*;
 use crate::prelude_lib::*;
 use std::cell::RefCell;
+use std::fmt;
 
 pub trait Raw: 'static + Copy + fmt::Debug + Ord + Send + Sync + serde::Serialize + serde::de::DeserializeOwned {
     fn to_usize(self) -> usize;
@@ -103,7 +103,19 @@ impl<'a, M: TableMarker> fmt::Debug for CheckedId<'a, M> {
 }
 pub unsafe trait Check<'a>: Copy + Ord + fmt::Debug {
     type M: TableMarker;
-    unsafe fn check(&self, table: PhantomData<&'a Self::M>, max: usize) -> CheckedId<'a, Self::M> {
+    fn check(&self, id_list: &'a IdList<Self::M>) -> CheckedId<'a, Self::M> {
+        unsafe {
+            self.check_from_len(
+                PhantomData::<&'a Self::M>,
+                id_list.len,
+            )
+        }
+    }
+    unsafe fn check_from_len(
+        &self,
+        table: PhantomData<&'a Self::M>,
+        max: usize,
+    ) -> CheckedId<'a, Self::M> {
         // unsafe because you mustn't lie about `max`.
         let i = self.to_usize();
         if i >= max {
@@ -130,6 +142,18 @@ unsafe impl<'a, M: TableMarker> Check<'a> for CheckedId<'a, M> {
             id: self.id.step(d),
             ..self
         }
+    }
+    #[cfg(release)]
+    fn check(&self, _id_list: &'a IdList<Self::M>) -> CheckedId<'a, Self::M> {
+        *self
+    }
+    #[cfg(release)]
+    unsafe fn check_from_len(
+        &self,
+        _table: PhantomData<&'a Self::M>,
+        _max: usize,
+    ) -> CheckedId<'a, Self::M> {
+        *self
     }
 }
 unsafe impl<'a, M: TableMarker> Check<'a> for Id<M> {
@@ -246,6 +270,7 @@ pub struct IdList<M: TableMarker> {
     // FIXME: It'd be nice to use a RunList.
     pub deleting: SyncRef<Vec<Id<M>>>,
     pub needed: bool,
+    len: usize,
     // We only use SyncRef because elsehwere needs a &mut V, but this is unusable.
 }
 impl<M: TableMarker> Obj for IdList<M> {}
@@ -260,7 +285,7 @@ impl<M: TableMarker> IdList<M> {
     pub fn flush(&mut self, universe: &Universe) {
         let ids = mem::replace(self.deleting.get_mut(), vec![]);
         let mut deleted = Deleted { ids };
-        universe.submit_event(&deleted);
+        universe.submit_event(&mut deleted);
         mem::swap(&mut deleted.ids, self.deleting.get_mut());
     }
     pub fn write_deletions(&mut self) {
@@ -273,21 +298,32 @@ impl<M: TableMarker> IdList<M> {
         // We could implement this in a better way by merging back-to-front.
         // We'd extend `free` with !0's, merge backwards.
     }
-    pub unsafe fn iter_by_len(&self, len: usize) -> CheckedIter<M> {
-        CheckedIter::new(len, &self.free[..])
+    pub fn iter(&self) -> CheckedIter<M> {
+        unsafe {
+            CheckedIter::new(self.len, &self.free[..])
+        }
     }
     pub fn delete(&mut self, id: Id<M>) {
         let deleting = self.deleting.get_mut();
         deleting.push(id);
     }
-    pub fn removing(&self, c: &impl ColumnInfo<M>) -> ListRemoving<'static, M> {
+    pub fn removing(&mut self) -> ListRemoving<'static, M> {
         unsafe {
-            let len = (*c).len();
+            // FIXME: WHY WHY WHY
             ListRemoving {
-                range: IdRange::to(Id::from_usize(len)),
+                range: IdRange::to(Id::from_usize(self.len)),
                 exclude: mem::transmute(&self.free[..]),
                 deleting: mem::transmute(&self.deleting),
             }
+        }
+    }
+    pub unsafe fn recycle_id(&mut self) -> Result<Id<M>, Id<M>> {
+        if let Some(id) = self.free.pop() {
+            Ok(id)
+        } else {
+            let i = self.len;
+            self.len += 1;
+            Err(Id::from_usize(i))
         }
     }
 }
@@ -439,10 +475,29 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 /// it's easiest to use the table's `Read`, `Write`, or `Edit` `context!`.
 /// Otherwise you will need to take `&$table::Id` or `&mut $table::Id` as an argument to the
 /// `Kernel`.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct RunList<M: TableMarker> {
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
+}
+impl<M: TableMarker> fmt::Debug for RunList<M> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        let mut first = true;
+        for (a, b) in &self.data {
+            if first {
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+            match a.cmp(&b) {
+                Ordering::Less => write!(f, "{:?}..={:?}", a, b),
+                Ordering::Equal => write!(f, "{:?}", a),
+                Ordering::Greater => write!(f, "{:?}, {:?}", b, a),
+            }?;
+        }
+        write!(f, "]")
+    }
 }
 impl<M: TableMarker> RunList<M> {
     pub fn is_empty(&self) -> bool { self.iter().next().is_none() }

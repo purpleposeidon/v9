@@ -51,7 +51,7 @@ where
     type Output = T;
     fn index(&self, i: I) -> &T {
         unsafe {
-            let i = i.check(PhantomData, self.col.data.len());
+            let i = i.check_from_len(PhantomData, self.col.data.len());
             self.col.data.get_unchecked(i.to_usize())
         }
     }
@@ -64,7 +64,7 @@ where
     type Output = T;
     fn index(&self, i: I) -> &T {
         unsafe {
-            let i = i.check(PhantomData, self.col.data.len());
+            let i = i.check_from_len(PhantomData, self.col.data.len());
             if let Some((prev, dude)) = self.log.last() {
                 match prev.cmp(&i.uncheck()) {
                     Ordering::Less => panic!("disordered column access"),
@@ -84,7 +84,7 @@ where
 {
     fn index_mut(&mut self, i: I) -> &mut T {
         unsafe {
-            let i = i.check(PhantomData, self.col.data.len());
+            let i = i.check_from_len(PhantomData, self.col.data.len());
             if !self.must_log {
                 return self.col.data.get_unchecked_mut(i.to_usize());
             }
@@ -114,7 +114,7 @@ where
     type Output = T;
     fn index(&self, i: I) -> &T {
         unsafe {
-            let i = i.check(PhantomData, self.col.data.len());
+            let i = i.check_from_len(PhantomData, self.col.data.len());
             self.col.data.get_unchecked(i.to_usize())
         }
     }
@@ -175,8 +175,8 @@ where
         }
         let log = {
             let col: &'static Column<M, T> = unsafe { mem::transmute(&*col) };
-            let ev = Edited { col, new: log };
-            universe.submit_event(&ev);
+            let mut ev = Edited { col, new: log };
+            universe.submit_event(&mut ev);
             ev.new
         };
         for (id, new) in log.into_iter() {
@@ -214,7 +214,7 @@ where
         if old_len == new_len {
             return;
         }
-        universe.submit_event(&Pushed::<M> {
+        universe.submit_event(&mut Pushed::<M> {
             range: IdRange {
                 _a: PhantomData,
                 start: Id::from_usize(old_len),

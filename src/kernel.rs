@@ -66,6 +66,7 @@ impl Universe {
 /// 2. There aren't too many
 /// 3. (FIXME: Constraints on return value? Must be `()` for now.)
 pub unsafe trait KernelFn<Dump>: 'static + Send + Sync {
+    // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
     fn each_resource(f: &mut dyn FnMut(TypeId, Access));
 
     unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut());
@@ -117,11 +118,12 @@ impl Kernel {
     /// Any such arguments must be at the front of the parameter list,
     /// and must be pushed in the correct order.
     pub fn push_arg(&mut self, obj: &dyn Obj) {
-        self.vals
-            .push((obj as *const dyn Obj as *mut dyn Obj, Access::Read));
+        let obj = obj as *const dyn Obj as *mut dyn Obj;
+        self.vals.push((obj, Access::Read));
     }
     pub fn push_arg_mut(&mut self, obj: &mut dyn Obj) {
-        self.vals.push((obj as *mut dyn Obj, Access::Write));
+        let obj = obj as *mut dyn Obj;
+        self.vals.push((obj, Access::Write));
     }
     pub fn clear_args(&mut self) {
         self.vals.clear();

@@ -9,7 +9,7 @@ pub struct TableHeader {
     pub columns: Vec<TypeId>,
 }
 impl Obj for TableHeader {}
-pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register {
+pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::Debug {
     const NAME: Name;
     type RawId: Raw;
     fn header() -> TableHeader;
@@ -94,7 +94,7 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register {
 ///     // But remember how those warehouses were on fire?
 ///     universe.kmap(|list: &mut warehouses::Ids, mut on_fire: warehouses::edit::on_fire| {
 ///         let mut dousing = true;
-///         for wid in list.removing(&on_fire) {
+///         for wid in list.removing() {
 ///             if on_fire[wid] {
 ///                 if dousing {
 ///                     dousing = false;
@@ -209,6 +209,7 @@ macro_rules! table {
                 pub type Id = IdV9<Marker>;
                 /// The valid IDs. Kernels should take this by reference. Prefer using `List`.
                 pub type Ids = IdList<Marker>;
+                pub type CheckedId<'a> = CheckedIdV9<'a, Marker>;
                 pub const FIRST: IdV9<Marker> = IdV9(0);
                 pub const INVALID: IdV9<Marker> = IdV9(<$raw as Raw>::LAST);
                 /// Holds static information about the table.
@@ -230,12 +231,17 @@ macro_rules! table {
                 }
 
                 impl<'a> Read<'a> {
+                    pub fn check(&self, i: impl Check<'a, M=Marker>) -> CheckedId<'a> {
+                        i.check(&self.__v9__iter)
+                    }
                     pub fn clone_row(&self, i: impl Check<'a, M=Marker>) -> Row {
+                        let i = self.check(i);
                         Row {
                             $($cn: self.$cn[i].clone(),)*
                         }
                     }
                     pub fn ref_row(&self, i: impl Check<'a, M=Marker>) -> RowRef {
+                        let i = self.check(i);
                         RowRef {
                             $($cn: &self.$cn[i],)*
                         }
@@ -250,9 +256,7 @@ macro_rules! table {
                         IdRange::to(Id::from_usize(end))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
-                        unsafe {
-                            self.__v9__iter.iter_by_len(self.len())
-                        }
+                        self.__v9__iter.iter()
                     }
                 }
                 impl<'a> Edit<'a> {
@@ -278,11 +282,21 @@ macro_rules! table {
                         }
                     }
                     pub fn push(&mut self, row: Row) -> Id {
-                        let i = self.len();
                         unsafe {
-                            $(self.$cn.col.get_mut().data.push(row.$cn);)*
+                            match self.__v9__iter.recycle_id() {
+                                Ok(id) => {
+                                    let i = id.to_usize();
+                                    $(
+                                        *self.$cn.col.get_mut().data.get_unchecked_mut(i) = row.$cn;
+                                    )*
+                                    id
+                                },
+                                Err(id) => {
+                                    $(self.$cn.col.get_mut().data.push(row.$cn);)*
+                                    id
+                                },
+                            }
                         }
-                        Id::from_usize(i)
                     }
                     pub fn borrow(&self) -> Read {
                         Read {
@@ -298,9 +312,7 @@ macro_rules! table {
                         IdRange::to(Id::from_usize(end))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
-                        unsafe {
-                            self.__v9__iter.iter_by_len(self.len())
-                        }
+                        self.__v9__iter.iter()
                     }
                 }
             }

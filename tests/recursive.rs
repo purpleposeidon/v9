@@ -1,6 +1,6 @@
 #[macro_use] extern crate v9;
 use v9::prelude::*;
-
+use std::any::*;
 
 table! {
     pub struct person {
@@ -30,6 +30,7 @@ table! {
     }
 }
 
+#[test]
 fn main() {
     let mut universe = Universe::new();
     person::Marker::register(&mut universe);
@@ -64,4 +65,31 @@ fn main() {
             println!("{:?}", p.ref_row(id));
         }
     });
+    println!();
+    use v9::linkage::Select;
+    use v9::id::RunList;
+    use std::sync::*;
+    let run0 = Arc::new(RwLock::new(RunList::default()));
+    let run = run0.clone();
+    universe.kmap(move |c: kingdom::Read| {
+        let mut skip = true;
+        for id in c.iter() {
+            skip = !skip;
+            if skip { continue; }
+            use crate::v9::id::Check;
+            let id = id.uncheck();
+            run.write().unwrap().push(id);
+        }
+        let _ = dbg!(run.read().unwrap());
+    });
+    dbg!(TypeId::of::<continent::Marker>());
+    dbg!(TypeId::of::<kingdom::Marker>());
+    dbg!(TypeId::of::<town::Marker>());
+    dbg!(TypeId::of::<person::Marker>());
+    let run = Arc::try_unwrap(run0).unwrap().into_inner().unwrap();
+    let mut ev = Select::from(run);
+    universe.submit_event(&mut ev);
+    println!("{:?}", ev.selection);
+    println!("{:?}", ev.selection.get::<kingdom::Marker>().unwrap());
+    println!("{:?}", ev.selection.get::<person::Marker>().unwrap());
 }

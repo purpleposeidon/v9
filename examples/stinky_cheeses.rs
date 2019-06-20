@@ -83,7 +83,7 @@ fn main() {
     universe.kmap(
         |list: &mut warehouses::Ids, mut on_fire: warehouses::edit::on_fire| {
             let mut dousing = true;
-            for wid in list.removing(&on_fire) {
+            for wid in list.removing() {
                 if on_fire[wid] {
                     if dousing {
                         dousing = false;

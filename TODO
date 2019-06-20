@@ -5,3 +5,6 @@ Document table!'s output
 Document context!'s output
 Universe item docs are dumb
 crate docs: s/map/run
+
+# Polish
+Use RunList instead of Vec<Id<M>>
