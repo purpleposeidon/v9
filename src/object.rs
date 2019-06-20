@@ -311,9 +311,7 @@ impl Obj for Universe {}
 unsafe impl Extract for *const Universe {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = ();
-    unsafe fn extract(_universe: &Universe, _rez: &mut Rez) -> Self::Owned {
-        ()
-    }
+    unsafe fn extract(_universe: &Universe, _rez: &mut Rez) -> Self::Owned {}
     unsafe fn convert(universe: &Universe, _owned: *mut Self::Owned) -> Self {
         universe
     }

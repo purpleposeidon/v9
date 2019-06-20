@@ -563,14 +563,12 @@ impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
     fn next(&mut self) -> Option<Self::Item> {
         let buff = if let Some(buff) = self.buffer.take() {
             buff
+        } else if let Some((&x, xs)) = self.data.split_first() {
+            self.buffer = Some(x);
+            self.data = xs;
+            x
         } else {
-            if let Some((&x, xs)) = self.data.split_first() {
-                self.buffer = Some(x);
-                self.data = xs;
-                x
-            } else {
-                return None;
-            }
+            return None;
         };
         let (a, b) = buff;
         // (a < b) --> a..=b
