@@ -33,7 +33,7 @@ pub unsafe trait Extract: Sized {
 }
 // FIXME: It'd be nice to have impls of Extract for tuples; up to, say, 5.
 
-/// Helper trait. 
+/// Helper trait.
 pub unsafe trait ExtractOwned {
     type Ty: Obj;
     const ACC: Access;
