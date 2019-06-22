@@ -1,19 +1,41 @@
-//! A data engine for Data Oriented Design.
-//! `crate::v9` is a vastly simpler version of `crate::v11`.
+//! A data engine for [Data Oriented Design](http://dataorienteddesign.com/).
+//! `crate:v9` is a vastly simpler version of `crate:v11`.
 //!
 //! # Design
-//! A `Universe` has the same shape as a `HashMap<TypeId, Any>`.
+//! A `Universe` works like a `HashMap<TypeId, Any>`.
 //! A single instance of any type can be inserted into the universe.
+// (...altho the TypeId key need not match the type_id of the Any...)
 //! Changes can then be made by `run`ning a `Kernel`.
 //! A `Kernel` is any closure whose arguments all implement `Extract`.
-//! `Extract` indicates to the `Universe` what resources it needs,
-//! and does whatever is necessary to provide itself as an argument to the kernel.
+//! (The `Extract` trait works like `fn extract(&Universe) -> Self`.)
 //!
-//! This crate intentionally shares more fields that you might expect.
-//! It's hard to foresee all needs; hopefully you can do something useful with them.
+//! See [`table!`](macro.table.html) for an example of usage.
+//!
+//! # Encapsulation
+//! This crate makes an unreasonable amount of things public. This is intentional!
+//! An application should encapsulate `v9` behind its own interfaces.
+//!
+//! It's hard to foresee all needs; hopefully you can do something useful with them,
+//! and this is more honest than making things `pub` to satisfy my whims.
+//!
+//! # Safety
+//! ┐(ツ)┌
+//!
+//! My priorities are:
+//! 1. A clean API.
+//! 2. Fast compiles.
+//! 3. Gotta go fast.
+//! 4. Safety.
+//!
+//! If it's possible to stumble into something (that we'd maybe wish didn't compile) that doesn't
+//! blow up at runtime in an obvious way, then I'll be concerned. Monkey-proofing isn't a priority.
+// I interpret 'fast compiles' as:
+// - minimizing the code output by macros & generics.
+// - prefer dynamic dispatch to static dispatch.
 
 #[macro_use]
 extern crate mopa;
+
 #[doc(hidden)]
 pub extern crate paste;
 
@@ -33,11 +55,13 @@ pub mod id;
 pub mod linkage;
 pub mod util;
 
+/// A tasteful set of items.
 pub mod prelude {
     pub use crate::object::{Universe, Register};
     pub use crate::table::TableMarker;
 }
 
+/// Provides a single import statement for `table!`.
 pub mod prelude_macro {
     pub use crate::column::{Column, EditColumn, ReadColumn, WriteColumn};
     pub use crate::extract::*;
@@ -49,6 +73,7 @@ pub mod prelude_macro {
     pub use std::fmt;
 }
 
+/// An indiscriminant selection of many things.
 pub mod prelude_lib {
     pub use crate::extract::*;
     pub use crate::id::*;

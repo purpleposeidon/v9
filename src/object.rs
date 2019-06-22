@@ -9,18 +9,13 @@ use std::thread::ThreadId;
 // FIXME: Implement a property wrapper. Probably called `Val` instead of `Property`.
 
 /// Essentially `Any`.
+// This is mostly here for my sanity's sake.
+// `Any::type_id()` often returns TypeId::of::<Any>().
 pub trait Obj: mopa::Any + Send + Sync {}
 #[allow(clippy::transmute_ptr_to_ref)]
 mod mopafy_for_clippy {
     use super::Obj;
     mopafy!(Obj);
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum LockState {
-    Open,
-    Write(ThreadId),
-    Read(u64),
 }
 
 #[derive(Default)]
@@ -140,6 +135,13 @@ impl Universe {
             println!("    {:?}\t{:?}", ty, val.state);
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum LockState {
+    Open,
+    Write(ThreadId),
+    Read(u64),
 }
 
 #[cfg(test)]

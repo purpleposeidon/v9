@@ -194,6 +194,7 @@ macro_rules! table {
                 pub $cn:ident: $cty:ty,
             )*
         }
+        // FIXME: `in mod $in_mod:tt`
     ) => {
         #[allow(non_camel_case_types, dead_code, non_upper_case_globals, non_snake_case)]
         $(#[doc = $doc])*
@@ -205,10 +206,11 @@ macro_rules! table {
                 use $crate::prelude_macro::*;
                 use super::in_user::{Read, Write, Edit, Row, RowRef};
                 pub const NAME: &'static str = stringify!($name);
-                /// A strongly typed index into the table. "Pre-checked" ids are available.
+                /// A strongly typed index into the table.
                 pub type Id = IdV9<Marker>;
                 /// The valid IDs. Kernels should take this by reference. Prefer using `List`.
                 pub type Ids = IdList<Marker>;
+                /// A 'pre-checked' index into the table. Values of this type are known to 
                 pub type CheckedId<'a> = CheckedIdV9<'a, Marker>;
                 pub const FIRST: IdV9<Marker> = IdV9(0);
                 pub const INVALID: IdV9<Marker> = IdV9(<$raw as Raw>::LAST);
@@ -217,12 +219,12 @@ macro_rules! table {
                 pub struct Marker;
                 impl fmt::Debug for Marker {
                     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                        write!(f, stringify!($name))
+                        write!(f, "{}", NAME)
                     }
                 }
                 impl fmt::Display for Marker {
                     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                        write!(f, stringify!($name))
+                        write!(f, "{}", NAME)
                     }
                 }
 
@@ -247,9 +249,7 @@ macro_rules! table {
                         }
                     }
                     pub fn len(&self) -> usize {
-                        $crate::table! {@first $({
-                            self.$cn.col.data.len()
-                        })*}
+                        self.__v9__iter.len()
                     }
                     pub fn iter_all(&self) -> UncheckedIdRange<Marker> {
                         let end = self.len();
@@ -261,20 +261,20 @@ macro_rules! table {
                 }
                 impl<'a> Edit<'a> {
                     pub fn len(&self) -> usize {
-                        $crate::table! {@first $({
-                            self.$cn.col.data.len()
-                        })*}
+                        self.__v9__iter.len()
                     }
                     pub fn iter_all(&self) -> IdRange<Id> {
                         let end = self.len();
                         IdRange::to(Id::from_usize(end))
                     }
+                    pub fn iter(&self) -> CheckedIter<Marker> {
+                        // FIXME: This originally wasn't here. Was there a reason for that?
+                        self.__v9__iter.iter()
+                    }
                 }
                 impl<'a> Write<'a> {
                     pub fn len(&self) -> usize {
-                        $crate::table! {@first $({
-                            self.$cn.col.data.len()
-                        })*}
+                        self.__v9__iter.len()
                     }
                     pub fn reserve(&mut self, n: usize) {
                         unsafe {
@@ -319,6 +319,9 @@ macro_rules! table {
             mod in_user {
                 #[allow(unused_imports)]
                 use super::super::*;
+                // Again, we have to firewall v9 from user types.
+                // Macro hygiene doesn't extend so far as `$_:ty`.
+                // The compiler won't know the types unless they're in scope.
 
                 impl $crate::prelude_macro::TableMarker for super::Marker {
                     const NAME: &'static str = super::in_v9::NAME;
@@ -356,9 +359,12 @@ macro_rules! table {
                     }
                 }
 
-                /// An owned copy of a row, AOS layout.
                 #[derive(Debug, Clone)]
                 $(#[$row_meta])*
+                // Doc goes *after* attributes because the user might provide their own, better,
+                // documentation. No way to get rid of this
+                ///
+                /// An AOS row.
                 pub struct Row {
                     $(
                         $(#[$cmeta])*
@@ -409,10 +415,13 @@ macro_rules! table {
                 }
                 pub use self::edit::__Edit as Edit;
                 /// Write an individual column.
-                // Uhm. Why would you want this!?
                 pub mod write {
                     #[allow(unused_imports)]
                     use super::super::super::*;
+                    // FIXME: Why would you want this!? You could make the columns uneven!
+                    // Maybe we should only make public the context?
+                    // A possible use is that you might be deserializing from a SOA.
+                    // However that's probably the only usage.
                     $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, $cty>;)*
                     /// Lists valid IDs.
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
