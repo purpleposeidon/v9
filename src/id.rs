@@ -282,6 +282,7 @@ impl<M: TableMarker> Drop for IdList<M> {
     }
 }
 impl<M: TableMarker> IdList<M> {
+    pub fn len(&self) -> usize { self.len }
     pub fn flush(&mut self, universe: &Universe) {
         let ids = mem::replace(self.deleting.get_mut(), vec![]);
         let mut deleted = Deleted { ids };
