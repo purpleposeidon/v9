@@ -56,7 +56,6 @@ where
 }
 
 /// Produces the objects asked for by `Extract`.
-/// The methods return a `'static` reference however this is a falsehood.
 #[derive(Debug)]
 pub struct Rez {
     vals: &'static [(*mut dyn Obj, Access)],
@@ -65,13 +64,13 @@ impl Rez {
     pub(crate) fn new(vals: &'static [(*mut dyn Obj, Access)]) -> Self {
         Rez { vals }
     }
-    pub unsafe fn take_ref(&mut self) -> &'static dyn Obj {
+    pub unsafe fn take_ref<'a>(&mut self) -> &'a dyn Obj {
         let (v, a): (*mut dyn Obj, Access) = self.vals[0];
         assert_eq!(a, Access::Read, "asked for Access::Write but used take_ref");
         self.vals = &self.vals[1..];
         &mut *v
     }
-    pub unsafe fn take_mut(&mut self) -> &'static mut dyn Obj {
+    pub unsafe fn take_mut<'a>(&mut self) -> &'a mut dyn Obj {
         let (v, a): (*mut dyn Obj, Access) = self.vals[0];
         assert_eq!(a, Access::Write, "asked for Access::Read but used take_mut");
         self.vals = &self.vals[1..];
