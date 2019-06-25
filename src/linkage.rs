@@ -1,3 +1,4 @@
+//! Connecting tables.
 use crate::column::*;
 use crate::event::*;
 use crate::kernel::{Kernel, KernelArg, KernelFn};
@@ -65,7 +66,7 @@ impl Universe {
             ColumnIndex::<M, T>::default(),
         );
         // Next we add handlers for each event:
-        self.tracker_with_ref_arg::<_, _, Pushed<M>>(
+        self.add_tracker_with_ref_arg::<_, _, Pushed<M>>(
             TypeId::of::<M>(),
             |ev: KernelArg<&Pushed<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
                 // 2. Insertion
@@ -77,7 +78,7 @@ impl Universe {
                 }
             },
         );
-        self.tracker_with_ref_arg::<_, _, Edited<M, T>>(
+        self.add_tracker_with_ref_arg::<_, _, Edited<M, T>>(
             TypeId::of::<M>(),
             |ev: KernelArg<&Edited<M, T>>, index: &mut ColumnIndex<M, T>| {
                 // 3. Edit
@@ -94,7 +95,7 @@ impl Universe {
                 }
             },
         );
-        self.tracker_with_ref_arg::<_, _, Deleted<M>>(
+        self.add_tracker_with_ref_arg::<_, _, Deleted<M>>(
             TypeId::of::<M>(),
             |ev: KernelArg<&Deleted<M>>, index: &mut ColumnIndex<M, T>, col: ReadColumn<M, T>| {
                 // 4. Delete
@@ -106,7 +107,7 @@ impl Universe {
                 }
             },
         );
-        self.tracker_with_ref_arg::<_, _, Moved<M>>(
+        self.add_tracker_with_ref_arg::<_, _, Moved<M>>(
             TypeId::of::<M>(),
             |ev: KernelArg<&Moved<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
                 // 5. Moved
@@ -121,7 +122,7 @@ impl Universe {
             },
         );
     }
-    pub fn tracker_with_ref_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
+    pub fn add_tracker_with_ref_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
     where
         F: KernelFn<Dump>,
         E: Obj,
@@ -132,7 +133,7 @@ impl Universe {
             universe.run(&mut kernel);
         });
     }
-    pub fn tracker_with_mut_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
+    pub fn add_tracker_with_mut_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
     where
         F: KernelFn<Dump>,
         E: Obj,
@@ -155,7 +156,7 @@ impl<X> ForeignKey for X {}
 impl<FM: TableMarker> Id<FM> {
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
         universe.add_index::<LM, Self>();
-        universe.tracker_with_ref_arg::<_, _, Deleted<FM>>(
+        universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
             TypeId::of::<LM>(),
             |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
                 // 6. Use the index to decide which IDs get the axe.
@@ -170,7 +171,7 @@ impl<FM: TableMarker> Id<FM> {
                 }
             },
         );
-        universe.tracker_with_ref_arg::<_, _, Moved<FM>>(
+        universe.add_tracker_with_ref_arg::<_, _, Moved<FM>>(
             TypeId::of::<LM>(),
             |ev: KernelArg<&Moved<FM>>, index: &ColumnIndex<LM, Self>, mut col: EditColumn<LM, Self>| {
                 // 7. Use the index to update everyone point at moved things.
@@ -184,7 +185,7 @@ impl<FM: TableMarker> Id<FM> {
             },
         );
         let mut is_tracked: Option<bool> = None;
-        universe.tracker_with_mut_arg::<_, _, Select<FM>>(
+        universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
             TypeId::of::<LM>(),
             move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: *const Universe| {
                 // 8. Push the local ids of the foreign ids; we have them indexed.

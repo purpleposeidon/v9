@@ -1,3 +1,5 @@
+//! Running functions over the Universe.
+
 use self::panic::AssertUnwindSafe;
 use crate::prelude_lib::*;
 use std::collections::HashSet;
@@ -59,19 +61,21 @@ impl Universe {
     }
 }
 
-/// Implemented for closures.
+/// Implemented for certain closures.
 ///
 /// If your closure isn't a `Kernel`, ensure that:
 /// 1. All arguments are `Extract`.
-/// 2. There aren't too many
-/// 3. (FIXME: Constraints on return value? Must be `()` for now.)
+/// 2. You don't have an unreasonable number of arguments. (If necessary, you can group them up via `context!`.)
+/// 3. The return value is `()`.
 pub unsafe trait KernelFn<Dump>: 'static + Send + Sync {
     // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
+    // FIXME: What if we passed in `&mut Any=Option<R>`?
     fn each_resource(f: &mut dyn FnMut(TypeId, Access));
 
     unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut());
 }
 
+/// Works like a `Box<KernelFn>`.
 pub struct Kernel {
     resources: Vec<(TypeId, Access)>,
     run: Box<dyn FnMut(&Universe, Rez, &mut (dyn FnMut() + Send + Sync)) + Send + Sync>,
@@ -131,7 +135,7 @@ impl Kernel {
 }
 
 /// This wraps an argument to a kernel that does not exist in the `Universe`. It is provided using
-/// `Kernel::push_arg`.
+/// `Kernel::push_arg` before running the kernel.
 pub struct KernelArg<T> {
     val: T,
 }
@@ -195,8 +199,7 @@ macro_rules! impl_kernel {
     };
     (@ $_:ident) => {};
     (@ $_:ident $(, $A:ident)*) => {
-        // I wish we could pop the tail. 'A13, A14' is silly.
         impl_kernel! { $($A),* }
     };
 }
-impl_kernel! { A00, A01, A02, A03, A04, A05, A06, A07, A08, A09, A10, A11, A12, A13, A14 }
+impl_kernel! { A14, A13, A12, A11, A10, A09, A08, A07, A06, A05, A04, A03, A02, A01, A00 }

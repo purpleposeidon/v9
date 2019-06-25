@@ -37,11 +37,11 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 /// }
 ///
 /// fn main() {
-///     // We create a new Universe. We put everything we can in it!
+///     // We create a new Universe. The Universe holds everything!
 ///     use v9::prelude::Universe;
 ///     let mut universe = Universe::new();
 ///
-///     // But it doesn't know about the tables, so we must register them.
+///     // It doesn't know about the tables until we register them.
 ///     use v9::prelude::Register;
 ///     cheeses::Marker::register(&mut universe);
 ///     warehouses::Marker::register(&mut universe);
@@ -49,34 +49,35 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 ///     // Let's print out an inventory.
 ///     use v9::kernel::Kernel;
 ///     let mut print_inventory = Kernel::new(|cheeses: cheeses::Read, warehouses: warehouses::Read| {
-///         println!("Warehouses:");
+///         println!("  Warehouses:");
 ///         for id in warehouses.iter() {
-///             println!("{:?}", warehouses.ref_row(id));
+///             println!("    {:?}", warehouses.ref_row(id));
 ///         }
-///         println!("Cheeses:");
+///         println!("  Cheeses:");
 ///         for id in cheeses.iter() {
-///             println!("{:?}", cheeses.ref_row(id));
+///             println!("    {:?}", cheeses.ref_row(id));
 ///         }
 ///     });
-///     // The kernel holds our closure, and keeps track of all of the objects it requires.
+///     // The kernel holds our closure, and keeps track of all of the arguments it requires.
+///     println!("An empty inventory:");
 ///     universe.run(&mut print_inventory);
-///     // It's empty... we should add some things.
+///     // If we don't care allocation, you can use kmap. It reduces noise.
+///     // Let's use it add some things:
 ///     universe.kmap(|mut warehouses: warehouses::Write, mut cheeses: cheeses::Write| {
-///         warehouses.reserve(3);
 ///         let w0 = warehouses.push(warehouses::Row {
-///             coordinates: (0, 0),
+///             coordinates: (1, 2),
 ///             on_fire: true,
 ///         });
 ///         let w1 = warehouses.push(warehouses::Row {
-///             coordinates: (4, 9),
+///             coordinates: (2, 4),
 ///             on_fire: false,
 ///         });
 ///         let w2 = warehouses.push(warehouses::Row {
-///             coordinates: (8, 4),
+///             coordinates: (4, 2),
 ///             on_fire: true,
 ///         });
+///         cheeses.reserve(30);
 ///         for wid in &[w0, w1, w2] {
-///             cheeses.reserve(10);
 ///             for _ in 0..10 {
 ///                 cheeses.push(cheeses::Row {
 ///                     quantity: 237.0,
@@ -86,18 +87,15 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 ///             }
 ///         }
 ///     });
-///     // v9 is somewhat low-level. Because a Kernel does allocation (and we HATE allocation)
-///     // you are expected to implement your own higher level manager.
-///     // We can use `universe.kmap` when we prefer to be sloppy.
+///     println!("A non-empty inventory:");
 ///     universe.run(&mut print_inventory);
-///     // Now we should see our data.
-///     // But remember how those warehouses were on fire?
+///     // But what about those warehouses that are on fire?
 ///     universe.kmap(|list: &mut warehouses::Ids, mut on_fire: warehouses::edit::on_fire| {
-///         let mut dousing = true;
+///         let mut have_extinguisher = true;
 ///         for wid in list.removing() {
 ///             if on_fire[wid] {
-///                 if dousing {
-///                     dousing = false;
+///                 if have_extinguisher {
+///                     have_extinguisher = false;
 ///                     on_fire[wid] = false;
 ///                 } else {
 ///                     wid.remove();
@@ -105,14 +103,15 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 ///             }
 ///         }
 ///     });
-///     // v9 has ensured data consistency -- the cheese in the destroyed warehouses has been lost.
+///     // v9 has ensured data consistency.
+///     // The burnt cheese has been destroyed.
+///     println!("A diminished inventory:");
 ///     universe.run(&mut print_inventory);
 ///     universe.kmap(|cheeses: cheeses::Read| {
-///         let mut n = 0;
-///         for _ in cheeses.iter() {
-///             n += 1;
-///         }
-///         assert_eq!(n, 20);
+///         assert_eq!(
+///             20,
+///             cheeses.iter().count(),
+///         );
 ///     });
 /// }
 /// ```
@@ -124,13 +123,13 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 ///    columns should be singular. (Unless it should be, like in `pub aliases: Vec<String>`.)
 /// 2. The macro syntax kind of looks like a struct… but it very much is not.
 /// 3. Type paths should be absolute, not relative.
-/// 4. The struct's visiblity may be anything, but the field's visiblity must be `pub`.
+/// 4. The "struct"'s visiblity may be anything, but the fields are always `pub`.
 ///
 /// # Meta-Attributes
 /// There are certain meta-attributes that may be placed on the "struct". They must be provided in the order given here:
-/// 1. `#[doc]`*. Places documentation on the module.
-/// 2. `#[row::<meta>]`* Passes meta-attributes to the `Row`; eg `#[row(derive(serde::Serialize))]`.
-///    `#[derive(Clone, Debug)]` is always provided.
+/// 1. Documentation. It is placed on the generated module.
+/// 2. `#[row::<meta>]`* Passes meta-attributes to the `Row`; eg `#[row::derive(serde::Serialize))]`.
+///    `#[row::derive(Clone, Debug)]` is always provided.
 /// 3. `#[raw_index(u32)]`. Defines the type used to index. The default is `u32`. Must be [`Raw`].
 ///    The last index is generally considered to be 'invalid'.
 ///
@@ -143,16 +142,14 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 /// ```
 /// v9::table! {
 ///     /// Some of our many fine cheeses!
-///     #[row::derive(Copy, PartialEq, Eq)]
-///     #[row::derive(Hash)]
+///     #[row::derive(serde::Serialize)]
+///     #[row::doc = "Why does our cheese keep catching on fire!??"]
 ///     #[raw_index(u8)]
 ///     pub struct cheeses {
-///         /// We have so much cheese!
 ///         pub quantity: u64,
 ///         /// P. U.!
 ///         pub stinky: bool,
-///         /// If we were deriving serde, we could uncomment this meta-attribute.
-///         //#[serde::skip]
+///         #[serde(skip)]
 ///         pub on_fire: Option<bool>,
 ///     }
 /// }
@@ -161,7 +158,6 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 // FIXME: keep the stinky_cheeses example in sync or something...?
 #[macro_export]
 macro_rules! table {
-    (@first $x:tt $($_xs:tt)*) => { $x };
     (
         $(#[doc = $doc:literal])*
         $(#[row::$row_meta:meta])*
@@ -359,6 +355,7 @@ macro_rules! table {
                     }
                 }
 
+                // FIXME: Maybe we shouldn't have these by default...
                 #[derive(Debug, Clone)]
                 $(#[$row_meta])*
                 // Doc goes *after* attributes because the user might provide their own, better,

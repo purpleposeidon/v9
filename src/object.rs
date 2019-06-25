@@ -2,7 +2,6 @@ use crate::prelude_lib::*;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use std::thread::ThreadId;
 
 // FIXME: impl Extract for Universe.
 
@@ -44,6 +43,11 @@ impl Universe {
         let map = &mut *self.objects.write().unwrap();
         Universe::insert(map, key, Locked::new(Box::new(obj)));
     }
+    pub fn add_mut<T: Obj>(&mut self, key: TypeId, obj: T) {
+        let map = &mut *self.objects.get_mut().unwrap();
+        let obj = Locked::new(Box::new(obj));
+        Universe::insert(map, key, obj);
+    }
     pub fn remove<T: Obj>(&self, key: TypeId) -> Option<Box<dyn Obj>> {
         self.objects
             .write()
@@ -57,11 +61,6 @@ impl Universe {
             .unwrap()
             .remove(&key)
             .map(|l| l.into_inner())
-    }
-    pub fn add_mut<T: Obj>(&mut self, key: TypeId, obj: T) {
-        let map = &mut *self.objects.get_mut().unwrap();
-        let obj = Locked::new(Box::new(obj));
-        Universe::insert(map, key, obj);
     }
     pub fn has<T: Obj>(&self) -> bool {
         self.objects
@@ -96,6 +95,18 @@ impl Universe {
 }
 
 impl Universe {
+    pub fn with<R>(&self, ty: TypeId, f: impl FnOnce(&dyn Obj) -> R) -> R {
+        self.with_access(ty, Access::Read, move |obj| unsafe {
+            let obj = &*obj;
+            f(obj)
+        })
+    }
+    pub fn with_mut<R>(&self, ty: TypeId, f: impl FnOnce(&mut dyn Obj) -> R) -> R {
+        self.with_access(ty, Access::Write, move |obj| unsafe {
+            let obj = &mut *obj;
+            f(obj)
+        })
+    }
     pub fn with_access<R>(
         &self,
         ty: TypeId,
@@ -117,31 +128,12 @@ impl Universe {
             }
         }
     }
-    pub fn with<R>(&self, ty: TypeId, f: impl FnOnce(&dyn Obj) -> R) -> R {
-        self.with_access(ty, Access::Read, move |obj| unsafe {
-            let obj = &*obj;
-            f(obj)
-        })
-    }
-    pub fn with_mut<R>(&self, ty: TypeId, f: impl FnOnce(&mut dyn Obj) -> R) -> R {
-        self.with_access(ty, Access::Write, move |obj| unsafe {
-            let obj = &mut *obj;
-            f(obj)
-        })
-    }
     pub fn lock_state_dump(&self) {
         let objects = self.objects.read().unwrap();
         for (ty, val) in objects.iter() {
             println!("    {:?}\t{:?}", ty, val.state);
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum LockState {
-    Open,
-    Write(ThreadId),
-    Read(u64),
 }
 
 #[cfg(test)]

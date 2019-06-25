@@ -27,12 +27,15 @@ unsafe impl<T: Send> Send for SyncRef<T> {}
 unsafe impl<T> Sync for SyncRef<T> {}
 // FIXME: Ugh, this is probably unsound.
 
+/// A `&mut T` that pretends it's a `&T`.
 pub struct MutButRef<'a, T>(&'a mut T);
 impl<'a, T> MutButRef<'a, T> {
     pub fn new(t: &'a mut T) -> Self {
         Self(t)
     }
     pub unsafe fn get_mut(&mut self) -> &mut T {
+        // Obviously nothing unsafe is happening here,
+        // but users of MutButRef require the guarantee.
         self.0
     }
 }

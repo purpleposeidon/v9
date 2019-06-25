@@ -1,3 +1,4 @@
+//! Extracting values from the `Universe`.
 use crate::prelude_lib::*;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -22,6 +23,11 @@ pub enum Access {
 /// Self::finish(universe, owned);
 /// // (…)
 /// ```
+// I've put crazy amounts of time into trying to get this working w/o unsafe.
+// It's impossible. Any lifetime that you can name is valid for the duration of the function, and
+// we'd need to be able to name lifetimes for something *shorter* than a function.
+// You might want to see if you can get it working with recursive closures or something,
+// but I suspect it'd be kinda nasty.
 pub unsafe trait Extract: Sized {
     /// List the type & access requirement needed to do the extraction.
     /// This function must have constant behavior; it is unsound otherwise.

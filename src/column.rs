@@ -30,6 +30,10 @@ impl<M: TableMarker, T> Column<M, T> {
 pub struct ReadColumn<'a, M: TableMarker, T> {
     pub col: &'a Column<M, T>,
 }
+/// You can change the values in this column, but not the length.
+/// Changes may be logged. Because of this, you must access items in increasing order.
+// FIXME: Maybe we could work around this. What if we saved a copy of the original to the log?
+// HashSet?
 pub struct EditColumn<'a, M: TableMarker, T>
 where
     T: Clone,
@@ -43,6 +47,8 @@ pub struct WriteColumn<'a, M: TableMarker, T> {
     pub col: MutButRef<'a, Column<M, T>>,
 }
 
+#[cold]
+fn disordered_column_access() -> ! { panic!("disordered column access") }
 impl<'a, I, M: TableMarker, T> Index<I> for ReadColumn<'a, M, T>
 where
     T: Clone,
@@ -67,7 +73,7 @@ where
             let i = i.check_from_len(PhantomData, self.col.data.len());
             if let Some((prev, dude)) = self.log.last() {
                 match prev.cmp(&i.uncheck()) {
-                    Ordering::Less => panic!("disordered column access"),
+                    Ordering::Less => disordered_column_access(),
                     Ordering::Equal => dude,
                     Ordering::Greater => self.col.data.get_unchecked(i.to_usize()),
                 }
@@ -85,17 +91,18 @@ where
     fn index_mut(&mut self, i: I) -> &mut T {
         unsafe {
             let i = i.check_from_len(PhantomData, self.col.data.len());
+            let i = i.uncheck();
             if !self.must_log {
                 return self.col.data.get_unchecked_mut(i.to_usize());
             }
             let prev = self.log.last().map(|(i, _)| i);
             if let Some(prev) = prev {
-                match prev.cmp(&i.uncheck()) {
-                    Ordering::Less => panic!("disordered column access"),
+                match prev.cmp(&i) {
+                    Ordering::Less => disordered_column_access(),
                     Ordering::Equal => (),
                     Ordering::Greater => {
                         let val = self.col.data.get_unchecked(i.to_usize()).clone();
-                        self.log.push((i.uncheck(), val))
+                        self.log.push((i, val))
                     }
                 }
             }

@@ -1,3 +1,5 @@
+//! Ids, lists of Ids, and various iterators.
+
 use crate::event::*;
 use crate::prelude_lib::*;
 use std::cell::RefCell;
@@ -72,8 +74,8 @@ impl<M: TableMarker> Id<M> {
     }
 }
 
-/// An `Id` that is known to be in-bounds on the given table. You may want to check your ID if you
-/// will be working with a lot of columns or indices.
+/// An `Id` that is known to be in-bounds on the given table.
+/// You should check the Id if you'll be doing a lot of indexing.
 // Hmm, unsound if the columns have inconsistent lengths.
 #[derive(Copy, Clone)]
 pub struct CheckedId<'a, M: TableMarker> {

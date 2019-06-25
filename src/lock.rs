@@ -6,6 +6,13 @@ fn thread_id() -> ThreadId {
     ::std::thread::current().id()
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum LockState {
+    Open,
+    Write(ThreadId),
+    Read(u64),
+}
+
 pub struct Locked {
     // This is stuff is public due to our 'no encapsulation' policy.
     pub obj: UnsafeCell<Box<dyn Obj>>,
