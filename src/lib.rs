@@ -54,6 +54,7 @@ pub mod column;
 pub mod event;
 pub mod id;
 pub mod linkage;
+pub mod property;
 pub mod util;
 
 /// A tasteful set of items.
@@ -74,13 +75,14 @@ pub mod prelude_macro {
     pub use std::fmt;
 }
 
-/// An indiscriminant selection of many things.
+/// An indiscriminant selection of most things.
 pub mod prelude_lib {
     pub use crate::extract::*;
     pub use crate::id::*;
     pub use crate::lock::*;
     pub use crate::object::*;
     pub use crate::prelude::*;
+    pub use crate::property::*;
     pub use crate::table::{TableHeader, TableMarker};
     pub use crate::util::*;
     pub use std::any::{Any as StdAny, TypeId};
