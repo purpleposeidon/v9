@@ -6,13 +6,21 @@ use crate::prelude_lib::*;
 pub struct TableHeader {
     pub name: Name,
     pub marker: TypeId,
-    pub columns: Vec<TypeId>,
+    pub columns: Vec<ColumnHeader>,
 }
 impl Obj for TableHeader {}
 pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::Debug {
     const NAME: Name;
     type RawId: Raw;
     fn header() -> TableHeader;
+}
+
+#[derive(Debug, Clone)]
+pub struct ColumnHeader {
+    pub column_type: TypeId,
+    pub element_type: TypeId,
+    pub name: Name,
+    pub foreign_table: Option<Name>,
 }
 
 /// Defines a table. This is the most important item in the crate!
@@ -319,6 +327,7 @@ macro_rules! table {
                 // Macro hygiene doesn't extend so far as `$_:ty`.
                 // The compiler won't know the types unless they're in scope.
 
+                use $crate::prelude_macro::ForeignKey as _;
                 impl $crate::prelude_macro::TableMarker for super::Marker {
                     const NAME: &'static str = super::in_v9::NAME;
                     type RawId = $raw;
@@ -326,9 +335,15 @@ macro_rules! table {
                         $crate::prelude_macro::TableHeader {
                             name: Self::NAME,
                             marker: $crate::prelude_macro::TypeId::of::<super::Marker>(),
-                            columns: vec![
-                                $($crate::prelude_macro::TypeId::of::<$cty>()),*
-                            ],
+                            columns: vec![$($crate::prelude_macro::ColumnHeader {
+                                column_type: $crate::prelude_macro::TypeId::of::<self::types::$cn>(),
+                                element_type: $crate::prelude_macro::TypeId::of::<self::own::$cn>(),
+                                name: super::names::$cn,
+                                foreign_table: {
+                                    type T = $cty;
+                                    T::__v9_link_foreign_table_name()
+                                },
+                            }),*],
                         }
                     }
                 }
@@ -347,7 +362,6 @@ macro_rules! table {
                                 $crate::prelude_macro::TypeId::of::<$crate::prelude_macro::Column<super::Marker, $cty>>(),
                                 $crate::prelude_macro::Column::<super::Marker, $cty>::new(),
                         );)*
-                        use $crate::prelude_macro::ForeignKey as _;
                         $({
                             type T = $cty;
                             T::__v9_link_foreign_key::<super::Marker>(universe);

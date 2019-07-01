@@ -150,10 +150,14 @@ impl Universe {
 /// (which is still unstable). If your type is a foreign key, you should
 /// implement a function with the same name as the one in this trait.
 pub trait ForeignKey {
+    fn __v9_link_foreign_table_name() -> Option<Name> { None }
     fn __v9_link_foreign_key<LM: TableMarker>(_universe: &mut Universe) {}
 }
 impl<X> ForeignKey for X {}
 impl<FM: TableMarker> Id<FM> {
+    pub fn __v9_link_foreign_table_name() -> Option<Name> {
+        Some(FM::NAME)
+    }
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
         universe.add_index::<LM, Self>();
         universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
