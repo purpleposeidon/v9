@@ -95,13 +95,25 @@ impl Universe {
 }
 
 impl Universe {
-    pub fn with<R>(&self, ty: TypeId, f: impl FnOnce(&dyn Obj) -> R) -> R {
+    pub fn with<T: Obj, R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        self.with_obj(TypeId::of::<T>(), |obj| {
+            let obj = obj.downcast_ref().expect("type mismatch");
+            f(obj)
+        })
+    }
+    pub fn with_mut<T: Obj, R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        self.with_obj_mut(TypeId::of::<T>(), |obj| {
+            let obj = obj.downcast_mut().expect("type mismatch");
+            f(obj)
+        })
+    }
+    pub fn with_obj<R>(&self, ty: TypeId, f: impl FnOnce(&dyn Obj) -> R) -> R {
         self.with_access(ty, Access::Read, move |obj| unsafe {
             let obj = &*obj;
             f(obj)
         })
     }
-    pub fn with_mut<R>(&self, ty: TypeId, f: impl FnOnce(&mut dyn Obj) -> R) -> R {
+    pub fn with_obj_mut<R>(&self, ty: TypeId, f: impl FnOnce(&mut dyn Obj) -> R) -> R {
         self.with_access(ty, Access::Write, move |obj| unsafe {
             let obj = &mut *obj;
             f(obj)
