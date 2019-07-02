@@ -166,6 +166,7 @@ mod test {
         unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
             *(&mut *owned)
         }
+        type Cleanup = ();
     }
 
     #[test]
@@ -300,8 +301,22 @@ macro_rules! context {
                             $($cn: <self::cn::$cn<'static> as Extract>::convert(universe, &mut owned.$cn),)*
                         }
                     }
-                    fn finish(universe: &Universe, owned: Self::Owned) {
-                        $(<self::cn::$cn<'static> as Extract>::finish(universe, owned.$cn);)*
+                    type Cleanup = __OwnedCleanup;
+                }
+                pub struct __OwnedCleanup {
+                    $($cn: <self::cn::$cn<'static> as Extract>::Cleanup,)*
+                }
+                unsafe impl<'a> Cleaner<$name<'a>> for __OwnedCleanup {
+                    fn pre_cleanup(owned: __OwnedContext, universe: &Universe) -> Self {
+                        Self {
+                            $($cn: {
+                                type T = self::cn::$cn<'static>;
+                                <<T as Extract>::Cleanup as Cleaner<T>>::pre_cleanup(owned.$cn, universe)
+                            },)*
+                        }
+                    }
+                    fn post_cleanup(self, universe: &Universe) {
+                        $(Cleaner::<self::cn::$cn<'static>>::post_cleanup(self.$cn, universe);)*
                     }
                 }
             }
@@ -321,4 +336,5 @@ unsafe impl Extract for *const Universe {
     unsafe fn convert(universe: &Universe, _owned: *mut Self::Owned) -> Self {
         universe
     }
+    type Cleanup = ();
 }

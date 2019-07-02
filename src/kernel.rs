@@ -1,11 +1,19 @@
 //! Running functions over the Universe.
 
-use self::panic::AssertUnwindSafe;
 use crate::prelude_lib::*;
+use self::panic::AssertUnwindSafe;
 use std::collections::HashSet;
 
 impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
+        self.run_return::<()>(kernel)
+    }
+    pub fn run_return<Ret: StdAny>(&self, kernel: &mut Kernel) -> Ret {
+        let mut ret: Option<Ret> = None;
+        self.run_and_return_into(kernel, (&mut ret) as &mut StdAny);
+        ret.expect("return value not set")
+    }
+    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut StdAny) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
             {
@@ -41,23 +49,27 @@ impl Universe {
                 let run = &mut kernel.run;
                 let resources = &kernel.resources;
                 panic::catch_unwind(AssertUnwindSafe(move || {
-                    run(self, rez, &mut move || {
+                    run(self, rez, return_value as &mut StdAny, &mut move || {
+                        // See comment in 'fn run' KernelFn impl.
                         let mut objects = self.objects.write().expect("unable to release locks");
                         for &(ty, acc) in resources {
                             let lock = objects.get_mut(&ty).expect("lost locked object");
                             lock.release(acc);
                         }
-                    })
+                    });
                 }))
             };
             kernel.vals.clear();
-            ret.unwrap_or_else(|e| panic::resume_unwind(e))
+            ret.unwrap_or_else(|e| panic::resume_unwind(e));
         }
     }
 
     /// Quick & dirty `Kernel` `run`ner. This is provided to simplify tests.
-    pub fn kmap<Dump, K: KernelFn<Dump>>(&self, k: K) {
-        self.run(&mut Kernel::new(k));
+    pub fn kmap<Dump, K: KernelFn<Dump, ()>>(&self, k: K) {
+        self.kmap_return::<(), _, _>(k)
+    }
+    pub fn kmap_return<Ret: StdAny, Dump, K: KernelFn<Dump, Ret>>(&self, k: K) -> Ret {
+        self.run_return::<Ret>(&mut Kernel::new(k))
     }
 }
 
@@ -67,18 +79,18 @@ impl Universe {
 /// 1. All arguments are `Extract`.
 /// 2. You don't have an unreasonable number of arguments. (If necessary, you can group them up via `context!`.)
 /// 3. The return value is `()`.
-pub unsafe trait KernelFn<Dump>: 'static + Send + Sync {
+pub unsafe trait KernelFn<Dump, Ret>: 'static + Send + Sync {
     // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
     // FIXME: What if we passed in `&mut Any=Option<R>`?
     fn each_resource(f: &mut dyn FnMut(TypeId, Access));
 
-    unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut());
+    unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
 }
 
 /// Works like a `Box<KernelFn>`.
 pub struct Kernel {
     resources: Vec<(TypeId, Access)>,
-    run: Box<dyn FnMut(&Universe, Rez, &mut (dyn FnMut() + Send + Sync)) + Send + Sync>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut StdAny, &mut (dyn FnMut() + Send + Sync)) + Send + Sync>,
     locks: Vec<(*mut Locked, Access)>,
     vals: Vec<(*mut dyn Obj, Access)>,
 }
@@ -88,7 +100,7 @@ pub struct Kernel {
 unsafe impl Send for Kernel {}
 unsafe impl Sync for Kernel {}
 impl Kernel {
-    pub fn new<Dump, K: KernelFn<Dump>>(mut k: K) -> Self {
+    pub fn new<Dump, Ret: StdAny, K: KernelFn<Dump, Ret>>(mut k: K) -> Self {
         let mut resources = vec![];
         let mut write = HashSet::new();
         let mut any = HashSet::new();
@@ -113,7 +125,10 @@ impl Kernel {
         let vals = Vec::with_capacity(resources.len());
         Kernel {
             resources,
-            run: Box::new(move |universe, rez, cleanup| unsafe { k.run(universe, rez, cleanup) }),
+            run: Box::new(move |universe, rez, ret, cleanup| unsafe {
+                let ret: &mut Option<Ret> = ret.downcast_mut().expect("return type mismatch");
+                *ret = Some(k.run(universe, rez, cleanup));
+            }),
             locks,
             vals,
         }
@@ -148,6 +163,7 @@ unsafe impl<'a, T: Obj> Extract for KernelArg<&'a T> {
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
         KernelArg { val: *owned }
     }
+    type Cleanup = ();
 }
 unsafe impl<'a, T: Obj> Extract for KernelArg<&'a mut T> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
@@ -158,6 +174,7 @@ unsafe impl<'a, T: Obj> Extract for KernelArg<&'a mut T> {
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
         KernelArg { val: *owned }
     }
+    type Cleanup = ();
 }
 impl<T> Deref for KernelArg<T> {
     type Target = T;
@@ -174,10 +191,10 @@ impl<T> DerefMut for KernelArg<T> {
 macro_rules! impl_kernel {
     ($($A:ident),*) => {
         #[allow(non_snake_case)]
-        unsafe impl<$($A,)* X> KernelFn<($($A,)*)> for X
+        unsafe impl<$($A,)* Ret, X> KernelFn<($($A,)*), Ret> for X
         where
             X: 'static + Send + Sync,
-            X: FnMut($($A),*),
+            X: FnMut($($A),*) -> Ret,
             $($A: Extract,)*
         {
             fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
@@ -185,14 +202,16 @@ macro_rules! impl_kernel {
                     $A::each_resource(f);
                 )*
             }
-            unsafe fn run(&mut self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) {
+            unsafe fn run(&mut self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
                 $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
-                {
+                let ret = {
                     $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
-                    self($($A),*);
-                }
-                cleanup();
-                $($A::finish(universe, $A);)*
+                    self($($A),*)
+                };
+                $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, universe);)*
+                cleanup(); // Releases the locks.
+                $($A.post_cleanup(universe);)*
+                ret
             }
         }
         impl_kernel! { @ $($A),* }

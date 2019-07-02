@@ -268,8 +268,8 @@ pub type UncheckedIdRange<M> = IdRange<'static, Id<M>>;
 
 #[derive(Default)]
 pub struct IdList<M: TableMarker> {
+    // FIXME: Use RunLists.
     pub free: Vec<Id<M>>,
-    // FIXME: It'd be nice to use a RunList.
     pub deleting: SyncRef<Vec<Id<M>>>,
     pub needed: bool,
     len: usize,
@@ -289,7 +289,9 @@ impl<M: TableMarker> IdList<M> {
         let ids = mem::replace(self.deleting.get_mut(), vec![]);
         let mut deleted = Deleted { ids };
         universe.submit_event(&mut deleted);
-        mem::swap(&mut deleted.ids, self.deleting.get_mut());
+        let tmp = self.deleting.get_mut();
+        mem::swap(&mut deleted.ids, tmp);
+        assert!(deleted.ids.is_empty(), "additional deletions occured during deletion flush");
     }
     pub fn write_deletions(&mut self) {
         // This uses timsort, which WP says has special handling for runs.
@@ -374,11 +376,29 @@ unsafe impl<'a, M: TableMarker> Extract for &'a mut IdList<M> {
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
         &mut *owned
     }
-    fn finish(universe: &Universe, owned: Self::Owned) {
-        if owned.needed {
-            owned.flush(universe);
+    type Cleanup = IdListCleanup;
+}
+#[doc(hidden)]
+pub struct IdListCleanup {
+    anything: bool,
+}
+unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
+    fn pre_cleanup(owned: <&'a mut IdList<M> as Extract>::Owned, _universe: &Universe) -> Self {
+        IdListCleanup {
+            anything: owned.needed | !owned.deleting.get_mut().is_empty(),
         }
-        owned.write_deletions();
+    }
+    fn post_cleanup(self, universe: &Universe) {
+        if !self.anything { return; }
+        // FIXME: this needs to happen without any other thread having the opportunity to acquire
+        // locks. We could have a bit of state on 'verse that says "you can only release locks",
+        // and we can set it in the cleanup() closure, and temporarily release it here.
+        universe.with_mut(|owned: &mut IdList<M>| {
+            if owned.needed {
+                owned.flush(universe);
+            }
+            owned.write_deletions();
+        });
     }
 }
 

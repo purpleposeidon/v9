@@ -40,6 +40,7 @@ unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a 
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
         *owned
     }
+    type Cleanup = ();
 }
 unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a mut ColumnIndex<M, T> {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
@@ -52,6 +53,7 @@ unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a 
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
         *owned
     }
+    type Cleanup = ();
 }
 impl Universe {
     pub fn add_index<M: TableMarker, T>(&mut self)
@@ -84,7 +86,7 @@ impl Universe {
                 // 3. Edit
                 // col[i] = new;
                 // index[(old, i)] -> index[(new, i)]
-                let col = ReadColumn { col: ev.col() };
+                let col = ReadColumn { col: ev.col(), no_send: PhantomData };
                 for &(id, new) in &ev.new {
                     let old = col[id];
                     // if old == new { continue; }
@@ -124,7 +126,7 @@ impl Universe {
     }
     pub fn add_tracker_with_ref_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
     where
-        F: KernelFn<Dump>,
+        F: KernelFn<Dump, ()>,
         E: Obj,
     {
         let mut kernel = Kernel::new(f);
@@ -135,7 +137,7 @@ impl Universe {
     }
     pub fn add_tracker_with_mut_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
     where
-        F: KernelFn<Dump>,
+        F: KernelFn<Dump, ()>,
         E: Obj,
     {
         let mut kernel = Kernel::new(f);

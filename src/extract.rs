@@ -24,10 +24,9 @@ pub enum Access {
 /// // (…)
 /// ```
 // I've put crazy amounts of time into trying to get this working w/o unsafe.
-// It's impossible. Any lifetime that you can name is valid for the duration of the function, and
-// we'd need to be able to name lifetimes for something *shorter* than a function.
-// You might want to see if you can get it working with recursive closures or something,
-// but I suspect it'd be kinda nasty.
+// It's impossible. Any lifetime that you can name is valid for the duration of the function,
+// and what we need is to name lifetimes for something *shorter* than a function.
+// It might work with recursive closures or something, but I suspect it'd be way too nasty.
 pub unsafe trait Extract: Sized {
     /// List the type & access requirement needed to do the extraction.
     /// This function must have constant behavior; it is unsound otherwise.
@@ -35,9 +34,20 @@ pub unsafe trait Extract: Sized {
     type Owned;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned;
     unsafe fn convert(universe: &Universe, owned: *mut Self::Owned) -> Self;
-    fn finish(_universe: &Universe, _owned: Self::Owned) {}
+    /// Default is `()`.
+    type Cleanup: Cleaner<Self>;
 }
 // FIXME: It'd be nice to have impls of Extract for tuples; up to, say, 5.
+
+pub unsafe trait Cleaner<E: Extract> {
+    fn pre_cleanup(owned: E::Owned, universe: &Universe) -> Self;
+    fn post_cleanup(self, universe: &Universe);
+}
+unsafe impl<E: Extract> Cleaner<E> for () {
+    fn pre_cleanup(_owned: E::Owned, _universe: &Universe) -> Self {}
+    fn post_cleanup(self, _universe: &Universe) {}
+}
+
 
 /// Helper trait.
 pub unsafe trait ExtractOwned {
@@ -59,6 +69,7 @@ where
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> X {
         (*owned).take().unwrap()
     }
+    type Cleanup = ();
 }
 
 /// Produces the objects asked for by `Extract`.

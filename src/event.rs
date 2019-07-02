@@ -3,10 +3,12 @@
 use crate::column::Column;
 use crate::prelude_lib::*;
 
+pub type Handler<E> = Box<FnMut(&Universe, &mut E) + Send + Sync>;
+
 /// Event handlers for an event `E`.
 // FIXME: Events should use RunIter.
 pub struct Tracker<E: 'static + Send + Sync> {
-    pub handlers: Vec<Box<FnMut(&Universe, &mut E) + Send + Sync>>,
+    pub handlers: Vec<Handler<E>>,
     pub owners: Vec<TypeId>,
 }
 impl<E: 'static + Send + Sync> Obj for Tracker<E> {}
@@ -113,11 +115,13 @@ mod test_tracking {
 
     #[test]
     fn basics() {
+        println!("Starting!");
         let universe = &mut Universe::new();
         ships::Marker::register(universe);
         sailors::Marker::register(universe);
         println!("hello there");
         universe.kmap(|mut ships: ships::Write, mut sailors: sailors::Write| {
+            println!("pushing stuff");
             let titanic = ships.push(ships::Row {
                 name: "RMS Titanic",
                 weight: 10,
@@ -159,7 +163,9 @@ mod test_tracking {
                 ship: lusitania,
                 name: "Frank",
             });
+            println!("stuff pushed");
         });
+        println!("first kmap");
         universe.kmap(|ships: ships::Read, sailors: sailors::Read| {
             println!("\nShips:");
             for id in ships.iter() {
@@ -190,12 +196,14 @@ mod test_tracking {
         universe.kmap(|ships: ships::Read, sailors: sailors::Read| {
             println!("\nAll Ships:");
             let mut count = 0;
+            let mut no_boaty = true;
             for id in ships.iter() {
                 let ship = ships.ref_row(id);
                 println!("{:?} = {:?}", id, ship);
-                assert!(!ship.name.contains("Boaty"));
+                no_boaty &= !ship.name.contains("Boaty");
                 count += 1;
             }
+            assert!(no_boaty);
             assert_eq!(count, 3);
             println!("\nSailors:");
             for id in sailors.iter_all() {
@@ -222,13 +230,15 @@ pub struct Pushed<M: TableMarker> {
 }
 impl<M: TableMarker> Obj for Pushed<M> {}
 pub struct Edited<M: TableMarker, T: 'static> {
-    pub(crate) col: &'static Column<M, T>,
+    pub(crate) col: *const Column<M, T>,
     pub new: Vec<(Id<M>, T)>,
 }
+unsafe impl<M: TableMarker, T: 'static> Send for Edited<M, T> {}
+unsafe impl<M: TableMarker, T: 'static> Sync for Edited<M, T> {}
 impl<M: TableMarker, T: 'static + Send + Sync> Obj for Edited<M, T> {}
 impl<M: TableMarker, T> Edited<M, T> {
     pub fn col<'a>(&'a self) -> &'a Column<M, T> {
-        self.col
+        unsafe { &*self.col }
     }
 }
 

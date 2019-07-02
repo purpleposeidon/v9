@@ -78,6 +78,15 @@ fn main() {
     // you are expected to implement your own higher level manager.
     // We can use `universe.kmap` when we prefer to be sloppy.
     universe.run(&mut dump_all);
+    // Kernels can also return values...
+    let cheese_mass = universe.kmap_return(|cheeses: cheeses::Read| {
+        let mut sum = 0.0;
+        for id in cheeses.iter() {
+            sum += cheeses.quantity[id];
+        }
+        sum
+    });
+    println!("Current cheese count: {:?}", cheese_mass);
     // Now we should see our data.
     // But remember how those warehouses were on fire?
     universe.kmap(

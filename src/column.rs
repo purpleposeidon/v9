@@ -4,6 +4,8 @@ use crate::event::*;
 use crate::prelude_lib::*;
 use std::hint::unreachable_unchecked;
 
+pub type NoSend = PhantomData<*mut ()>;
+
 #[derive(Debug)]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
@@ -29,6 +31,7 @@ impl<M: TableMarker, T> Column<M, T> {
 
 pub struct ReadColumn<'a, M: TableMarker, T> {
     pub col: &'a Column<M, T>,
+    pub no_send: NoSend,
 }
 /// You can change the values in this column, but not the length.
 /// Changes may be logged. Because of this, you must access items in increasing order.
@@ -42,9 +45,11 @@ where
     pub col: &'a mut Column<M, T>,
     must_log: bool,
     log: &'a mut Vec<(Id<M>, T)>,
+    // FIXME: pub no_send: NoSend,
 }
 pub struct WriteColumn<'a, M: TableMarker, T> {
     pub col: MutButRef<'a, Column<M, T>>,
+    pub no_send: NoSend,
 }
 
 #[cold]
@@ -130,7 +135,7 @@ where
 
 impl<'a, M: TableMarker, T> WriteColumn<'a, M, T> {
     pub fn borrow(&self) -> ReadColumn<M, T> {
-        ReadColumn { col: &*self.col }
+        ReadColumn { no_send: PhantomData, col: &*self.col }
     }
 }
 
@@ -144,9 +149,19 @@ where
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
         let obj: &'static dyn Obj = rez.take_ref();
         ReadColumn {
+            no_send: PhantomData,
             col: obj.downcast_ref().unwrap(),
         }
     }
+}
+#[doc(hidden)]
+pub struct EditColumnOwned<'a, M, T>
+where
+    M: TableMarker,
+{
+    col: &'a mut Column<M, T>,
+    must_log: bool,
+    log: Vec<(Id<M>, T)>,
 }
 unsafe impl<'a, M, T> Extract for EditColumn<'a, M, T>
 where
@@ -157,39 +172,62 @@ where
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<Column<M, T>>(), Access::Write)
     }
-    type Owned = (
-        &'a mut Column<M, T>, // col
-        bool,                 // must_log
-        Vec<(Id<M>, T)>,      // log
-    );
+    type Owned = EditColumnOwned<'a, M, T>;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
         let col: &mut Column<M, T> = rez.take_mut_downcast();
         let must_log = universe.has::<Tracker<EditColumn<M, T>>>();
         let log = vec![];
-        (col, must_log, log)
+        EditColumnOwned { col, must_log, log }
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
-        let owned: &mut Self::Owned = &mut *owned;
-        let &mut (ref mut col, must_log, ref mut log) = owned;
-        EditColumn { col, must_log, log }
+        let EditColumnOwned { col, must_log, log } = &mut *owned;
+        EditColumn { col, must_log: *must_log, log }
     }
-    fn finish(universe: &Universe, (col, must_log, log): Self::Owned) {
-        if !must_log {
+    type Cleanup = EditColumnCleanup<M, T>;
+}
+#[doc(hidden)]
+pub struct EditColumnCleanup<M: TableMarker, T> {
+    must_log: bool,
+    log: Vec<(Id<M>, T)>,
+}
+unsafe impl<'a, M, T> Cleaner<EditColumn<'a, M, T>> for EditColumnCleanup<M, T>
+where
+    M: TableMarker,
+    T: 'static + Send + Sync,
+    T: Clone,
+    // or `EditColumn<>: Extract`?
+{
+    fn pre_cleanup(eco: EditColumnOwned<'a, M, T>, _universe: &Universe) -> Self {
+        Self {
+            must_log: eco.must_log,
+            log: eco.log,
+        }
+    }
+    fn post_cleanup(self, universe: &Universe) {
+        if !self.must_log || self.log.is_empty() {
             return;
         }
-        if log.is_empty() {
-            return;
-        }
-        let log = {
-            let col: &'static Column<M, T> = unsafe { mem::transmute(&*col) };
-            let mut ev = Edited { col, new: log };
+        let log = universe.with(move |col: &Column<M, T>| {
+            let col = col as *const _;
+            let mut ev = Edited { col, new: self.log };
             universe.submit_event(&mut ev);
             ev.new
-        };
-        for (id, new) in log.into_iter() {
-            col.data[id.0.to_usize()] = new;
-        }
+        });
+        universe.with_mut(move |col: &mut Column<M, T>| {
+            for (id, new) in log.into_iter() {
+                col.data[id.0.to_usize()] = new;
+            }
+        });
     }
+}
+#[doc(hidden)]
+pub struct WriteColLog<M, T>
+where
+    M: TableMarker,
+{
+    col: *mut Column<M, T>,
+    must_log: bool,
+    old_len: usize,
 }
 unsafe impl<'a, M, T> Extract for WriteColumn<'a, M, T>
 where
@@ -199,33 +237,59 @@ where
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<Column<M, T>>(), Access::Write)
     }
-    // (col, must_log, old_len)
-    type Owned = (&'a mut Column<M, T>, bool, usize);
+    type Owned = WriteColLog<M, T>;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
         let must_log = universe.has::<Tracker<Pushed<M>>>();
         let col: &mut Column<M, T> = rez.take_mut_downcast();
-        let old_len = col.data.len();
-        (col, must_log, old_len)
+        let len = col.data.len();
+        WriteColLog {
+            col: col as *mut _,
+            must_log,
+            old_len: len,
+        }
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
-        let owned: &mut Self::Owned = &mut *owned;
+        let owned: &mut Column<M, T> = &mut *((*owned).col);
         WriteColumn {
-            col: MutButRef::new(owned.0),
+            col: MutButRef::new(owned),
+            no_send: PhantomData,
         }
     }
-    fn finish(universe: &Universe, (col, must_log, old_len): Self::Owned) {
-        if !must_log {
-            return;
+    type Cleanup = WriteColCleanup<M, T>;
+}
+#[doc(hidden)]
+pub struct WriteColCleanup<M, T>
+where
+    M: TableMarker,
+{
+    marker: PhantomData<(M, T)>,
+    must_log: bool,
+    old_len: usize,
+    new_len: usize,
+}
+unsafe impl<'a, M, T> Cleaner<WriteColumn<'a, M, T>> for WriteColCleanup<M, T>
+where
+    M: TableMarker,
+    T: 'static + Send + Sync,
+{
+    fn pre_cleanup(owned: WriteColLog<M, T>, _universe: &Universe) -> Self {
+        let new_len = unsafe { (*owned.col).len() };
+        Self {
+            marker: PhantomData,
+            must_log: owned.must_log,
+            old_len: owned.old_len,
+            new_len,
         }
-        let new_len = col.data.len();
-        if old_len == new_len {
+    }
+    fn post_cleanup(self, universe: &Universe) {
+        if !self.must_log || self.new_len == self.old_len {
             return;
         }
         universe.submit_event(&mut Pushed::<M> {
             range: IdRange {
                 _a: PhantomData,
-                start: Id::from_usize(old_len),
-                end: Id::from_usize(new_len),
+                start: Id::from_usize(self.old_len),
+                end: Id::from_usize(self.new_len),
             },
         });
     }
