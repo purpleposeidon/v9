@@ -103,7 +103,7 @@ impl Universe {
                 // 4. Delete
                 // del col[i];
                 // del index[(old, i)];
-                for &id in &ev.ids {
+                for id in &ev.ids {
                     let old = col[id];
                     index.map.remove(&(old, id));
                 }
@@ -167,10 +167,9 @@ impl<FM: TableMarker> Id<FM> {
             |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
                 // 6. Use the index to decide which IDs get the axe.
                 let deleting = list.deleting.get_mut();
-                deleting.reserve(ev.ids.len());
                 // We won't reserve enough space if the local table has multiple references to a
                 // single foreign row.
-                for &fid in &ev.ids {
+                for fid in &ev.ids {
                     let range = ColumnIndex::full_range(fid);
                     let locals = index.map.range(range);
                     deleting.extend(locals.map(|((_fid, lid), ())| *lid));

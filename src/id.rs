@@ -4,6 +4,10 @@ use crate::event::*;
 use crate::prelude_lib::*;
 use std::cell::RefCell;
 use std::fmt;
+use std::ops::RangeInclusive;
+use std::iter::Peekable;
+
+type Run<M> = (Id<M>, Id<M>);
 
 pub trait Raw: 'static + Copy + fmt::Debug + Ord + Send + Sync + serde::Serialize + serde::de::DeserializeOwned {
     fn to_usize(self) -> usize;
@@ -17,8 +21,11 @@ mod raw_impl {
     macro_rules! imp {
         ($($ty:ident),*) => {$(
             impl Raw for $ty {
+                #[inline]
                 fn to_usize(self) -> usize { self as usize }
+                #[inline]
                 fn from_usize(x: usize) -> Self { x as _ }
+                #[inline]
                 #[allow(clippy::cast_lossless)]
                 fn offset(self, d: i8) -> Self {
                     i64::from(self as i64 + i64::from(d)) as $ty
@@ -72,6 +79,10 @@ impl<M: TableMarker> Id<M> {
     pub fn step(self, d: i8) -> Self {
         Id(self.0.offset(d))
     }
+    #[inline]
+    pub fn next(self) -> Self { self.step(1) }
+    pub fn zero() -> Self { Id(M::RawId::ZERO) }
+    pub fn last() -> Self { Id(M::RawId::LAST) }
 }
 
 /// An `Id` that is known to be in-bounds on the given table.
@@ -268,9 +279,8 @@ pub type UncheckedIdRange<M> = IdRange<'static, Id<M>>;
 
 #[derive(Default)]
 pub struct IdList<M: TableMarker> {
-    // FIXME: Use RunLists.
-    pub free: Vec<Id<M>>,
-    pub deleting: SyncRef<Vec<Id<M>>>,
+    pub free: RunList<M>,
+    pub deleting: SyncRef<RunList<M>>,
     pub needed: bool,
     len: usize,
     // We only use SyncRef because elsehwere needs a &mut V, but this is unusable.
@@ -286,7 +296,7 @@ impl<M: TableMarker> Drop for IdList<M> {
 impl<M: TableMarker> IdList<M> {
     pub fn len(&self) -> usize { self.len }
     pub fn flush(&mut self, universe: &Universe) {
-        let ids = mem::replace(self.deleting.get_mut(), vec![]);
+        let ids = mem::replace(self.deleting.get_mut(), RunList::default());
         let mut deleted = Deleted { ids };
         universe.submit_event(&mut deleted);
         let tmp = self.deleting.get_mut();
@@ -298,14 +308,14 @@ impl<M: TableMarker> IdList<M> {
         // Merging together two sorted runs is the typical case.
         // Theoretically, an unstable sort will be slower in this case,
         // but I haven't tested this.
-        self.free.extend(self.deleting.get_mut().drain(..));
+        self.free.data.extend(self.deleting.get_mut().data.drain());
         self.free.sort();
         // We could implement this in a better way by merging back-to-front.
         // We'd extend `free` with !0's, merge backwards.
     }
     pub fn iter(&self) -> CheckedIter<M> {
         unsafe {
-            CheckedIter::new(self.len, &self.free[..])
+            CheckedIter::new(self.len, &self.free)
         }
     }
     pub fn delete(&mut self, id: Id<M>) {
@@ -313,13 +323,39 @@ impl<M: TableMarker> IdList<M> {
         deleting.push(id);
     }
     pub fn removing(&mut self) -> ListRemoving<'static, M> {
+        // NB: This is unsound. This is done intentionally.
+        // It makes usage nicer. Don't do weird things.
+        // See `removing2()` for the sound version. It's a pain.
+        // The crux of the issue is:
+        //    Checkable
+        //          Wants the Id and the Column to share a lifetime
+        //    vs RmId
+        //          Stores a reference to self.free
+        //    vs impl IndexMut for Column
+        //          Entangles the lifetime of the indexed value with &mut self
         unsafe {
-            // FIXME: WHY WHY WHY
             ListRemoving {
-                range: IdRange::to(Id::from_usize(self.len)),
-                exclude: mem::transmute(&self.free[..]),
+                checked: {
+                    // Passing in self.len
+                    CheckedIter::new(self.len, mem::transmute(&self.free))
+                },
                 deleting: mem::transmute(&self.deleting),
             }
+        }
+        // (Also it'd be nice to just transmute from removing2(),
+        // but I get some BS error about varying size.)
+    }
+    #[doc(hidden)]
+    pub fn removing2<'a, 'b>(&'a mut self) -> ListRemoving<'b, M>
+    where
+        'a: 'b,
+    {
+        ListRemoving {
+            checked: unsafe {
+                // Passing in self.len
+                CheckedIter::new(self.len, &self.free)
+            },
+            deleting: &self.deleting,
         }
     }
     pub unsafe fn recycle_id(&mut self) -> Result<Id<M>, Id<M>> {
@@ -333,26 +369,20 @@ impl<M: TableMarker> IdList<M> {
     }
 }
 pub struct ListRemoving<'a, M: TableMarker> {
-    range: UncheckedIdRange<M>,
-    exclude: &'a [Id<M>],
-    deleting: &'a SyncRef<Vec<Id<M>>>,
+    checked: CheckedIter<'a, M>,
+    deleting: &'a SyncRef<RunList<M>>,
     // FIXME: Make it &mut Vec :(
 }
 impl<'a, M: TableMarker> Iterator for ListRemoving<'a, M> {
     type Item = RmId<'a, M>;
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(id) = self.range.step() {
-            while *self.exclude.first().unwrap_or(&id) < id {
-                self.exclude = &self.exclude[1..];
-            }
-            if self.exclude.first().cloned() == Some(id) {
-                self.exclude = &self.exclude[1..];
-                continue;
-            }
-            let deleting = unsafe { self.deleting.as_cell_unsafe() };
-            return Some(RmId { id, deleting });
-        }
-        None
+        self.checked.next()
+            .map(|id| {
+                RmId {
+                    id: id.uncheck(),
+                    deleting: unsafe { self.deleting.as_cell_unsafe() },
+                }
+            })
     }
 }
 unsafe impl<'a, M: TableMarker> ExtractOwned for &'a IdList<M> {
@@ -406,7 +436,7 @@ unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
 #[derive(Copy, Clone)]
 pub struct RmId<'a, M: TableMarker> {
     id: Id<M>,
-    deleting: &'a RefCell<Vec<Id<M>>>,
+    deleting: &'a RefCell<RunList<M>>,
 }
 impl<'a, M: TableMarker> fmt::Debug for RmId<'a, M> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -448,43 +478,31 @@ unsafe impl<'a, M: TableMarker> Check<'a> for RmId<'a, M> {
 }
 
 pub struct CheckedIter<'a, M: TableMarker> {
-    free: &'a [Id<M>],
-    id: Id<M>,
-    end: Id<M>,
+    range: UncheckedIdRange<M>,
+    free: Peekable<RunListIter<'a, M>>,
 }
 impl<'a, M: TableMarker> CheckedIter<'a, M> {
-    pub unsafe fn new(len: usize, free: &'a [Id<M>]) -> Self {
+    pub unsafe fn new(len: usize, free: &'a RunList<M>) -> Self {
         CheckedIter {
-            free,
-            id: Id::from_usize(0),
-            end: Id::from_usize(len),
+            range: IdRange::to(Id::from_usize(len)),
+            free: free.iter().peekable(),
         }
     }
 }
 impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
     type Item = CheckedId<'a, M>;
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.id.to_usize() >= self.end.to_usize() {
-                return None;
-            }
-            let ret = CheckedId {
-                table: PhantomData,
-                id: self.id,
-            };
-            self.id = self.id.step(1);
-            let next_free = *self.free.first().unwrap_or(&self.id);
-            match ret.id.cmp(&next_free) {
-                Ordering::Less => return Some(ret),
-                Ordering::Equal => {
-                    self.free = &self.free[1..];
-                    continue;
-                }
-                Ordering::Greater => {
-                    unimplemented!("CheckedIter handling id greater free list's id")
-                }
+        // FIXME: range=1 billion to 1 billion+1, exclude=0 to 1 billion
+        while let Some(id) = self.range.step() {
+            loop {
+                match self.free.peek().map(|e| id.cmp(e)).unwrap_or(Ordering::Less) {
+                    Ordering::Equal => break,
+                    Ordering::Greater => self.free.next(),
+                    Ordering::Less => return Some(CheckedId { table: PhantomData, id }),
+                };
             }
         }
+        None
     }
 }
 
@@ -502,6 +520,7 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct RunList<M: TableMarker> {
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
+    // FIXME: is_sorted: bool,
 }
 impl<M: TableMarker> fmt::Debug for RunList<M> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -562,10 +581,94 @@ impl<M: TableMarker> RunList<M> {
         };
         self.data.push(new);
     }
+    pub fn push_run(&mut self, l: Id<M>, h: Id<M>) {
+        if let Some((a, b)) = self.data.last_mut() {
+            if a <= b && b.step(1) == l {
+                *b = h;
+                return;
+            }
+            // A possibility:
+            // if a > b && a+1 == l:
+            //     [b], a..=h
+            // No immediate benefit to this atm.
+        }
+        self.data.push((l, h));
+    }
+    pub fn pop(&mut self) -> Option<Id<M>> {
+        if let Some((a, b)) = self.data.pop() {
+            Some(match a.cmp(&b) {
+                Ordering::Greater => {
+                    self.data.push((b, b));
+                    a
+                },
+                Ordering::Equal => a,
+                Ordering::Less => {
+                    self.data.push((a, b.step(-1)));
+                    b
+                },
+            })
+        } else {
+            None
+        }
+    }
     pub fn clear(&mut self) { self.data.clear() }
     pub fn iter(&self) -> RunListIter<M> {
         self.into_iter()
     }
+    pub fn extend_from(&mut self, new: Self) {
+        self.data.reserve(new.data.len());
+        self.data.extend(new.data);
+    }
+    pub fn extend(&mut self, iter: impl Iterator<Item=Id<M>>) {
+        for id in iter {
+            self.push(id);
+        }
+    }
+    pub fn iter_runs<'a>(&'a self) -> impl Iterator<Item=RangeInclusive<Id<M>>> + 'a {
+        struct Iter<'a, M: TableMarker> {
+            buff: Option<RangeInclusive<Id<M>>>,
+            data: &'a [Run<M>],
+        }
+        impl<'a, M: TableMarker> Iterator for Iter<'a, M> {
+            type Item = RangeInclusive<Id<M>>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.buff.is_some() {
+                    self.buff.take()
+                } else if let Some(head) = self.data.first() {
+                    self.data = &self.data[1..];
+                    Some(if head.1 < head.0 {
+                        self.buff = Some(head.0..=head.0);
+                        head.1..=head.1
+                    } else {
+                        head.0..=head.1
+                    })
+                } else {
+                    None
+                }
+            }
+        }
+        Iter {
+            buff: None,
+            data: self.data.as_slice()
+        }
+    }
+    pub fn sort(&mut self) {
+        // FIXME: This could be more efficient, but that is, WOW, that's complicated.
+        let mut runs = Vec::with_capacity(self.data.len() * 2);
+        runs.extend(self.iter_runs());
+        runs.sort_by_key(|run| *run.start());
+        self.data.clear();
+        for run in runs.into_iter() {
+            if run.start() == run.end() {
+                self.push(*run.start());
+            } else {
+                self.push_run(*run.start(), *run.end());
+            }
+        }
+    }
+    // FIXME: fn compact(&mut self);
+    // FIXME: fn merge(&mut self, other: &Self);
 }
 impl<'a, M: TableMarker> IntoIterator for &'a RunList<M> {
     type Item = Id<M>;
@@ -646,11 +749,12 @@ mod test_run_list {
             }
         }
     }
-    fn check(x: impl Iterator<Item = u8>) {
+    fn check(x: impl Iterator<Item = u8>) -> usize {
         let mut c = Checker::default();
         for x in x {
             c.push(Id(x));
         }
+        c.fast.data.len()
     }
     fn checks(x: &[u8]) {
         check(x.iter().map(|&x| x));
@@ -683,4 +787,9 @@ mod test_run_list {
     fn bad_order2() {
         checks(&[1, 2, 0]);
     }
+    // #[test]
+    // fn efficient_when_backwards() {
+    //     let got_len = check((0..20).rev());
+    //     assert_eq!(got_len, 1);
+    // }
 }

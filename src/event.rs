@@ -248,6 +248,6 @@ pub struct Moved<M: TableMarker> {
 }
 impl<M: TableMarker> Obj for Moved<M> {}
 pub struct Deleted<M: TableMarker> {
-    pub ids: Vec<Id<M>>,
+    pub ids: RunList<M>,
 }
 impl<M: TableMarker> Obj for Deleted<M> {}
