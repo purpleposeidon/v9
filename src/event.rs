@@ -232,6 +232,9 @@ impl<M: TableMarker> Obj for Pushed<M> {}
 pub struct Edited<M: TableMarker, T: 'static> {
     pub(crate) col: *const Column<M, T>,
     pub new: Vec<(Id<M>, T)>,
+    // Or this could be split into
+    //    new_ids: RunList<M>,
+    //    new_values: Vec<T>,
 }
 unsafe impl<M: TableMarker, T: 'static> Send for Edited<M, T> {}
 unsafe impl<M: TableMarker, T: 'static> Sync for Edited<M, T> {}
