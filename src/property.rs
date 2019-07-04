@@ -49,11 +49,11 @@ macro_rules! property {
     // Default-initialized property
     (
         $(#[$meta:meta])*
-        $vis:vis type $name:ident: $type:ty
+        $vis:vis $name:ident: $type:ty
     ) => {
         property! {
             $(#[$meta])*
-            $vis type $name: $type = Default::default();
+            $vis $name: $type = Default::default();
         }
     };
 
@@ -99,6 +99,10 @@ mod test {
         MY_PROPERTY: MyProperty = MyProperty {
             val: 27,
         };
+    }
+
+    property! {
+        pub SHORT_PROPERTY: i32
     }
 
     #[test]
