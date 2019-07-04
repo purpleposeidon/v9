@@ -85,6 +85,7 @@ pub mod prelude_lib {
     pub use crate::property::*;
     pub use crate::table::{TableHeader, TableMarker};
     pub use crate::util::*;
+    pub use crate::linkage::*;
     pub use std::any::{Any as StdAny, TypeId};
     pub use std::cmp::Ordering;
     pub use std::marker::PhantomData;
