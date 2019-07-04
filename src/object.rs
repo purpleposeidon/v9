@@ -201,6 +201,13 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn look_for_missing_string() {
+        let universe = Universe::new();
+        universe.kmap(|_: &mut String| {});
+    }
+
+    #[test]
     fn change_string() {
         let mut universe = Universe::new();
         universe.add_mut(TypeId::of::<String>(), format!("Hello"));
@@ -254,18 +261,31 @@ macro_rules! context {
         $vis:vis struct $name:ident {
             $(
                 $(#[$cmeta:meta])*
-                $cvis:vis $cn:ident: $cty:path,
+                $cvis:vis $cn:ident
+                                     $(: &$cty_ref:ty,)?
+                                     $(: &mut $cty_mut:ty,)?
+                                     $(: $cty:path,)?
             )*
         }
     ) => {
         $crate::paste::item! {
+            #[allow(unused_imports)]
             $vis use self::[<_v9_impl_ $name>]::$name;
+
+            $(
+                $(#[allow(non_camel_case_types)] use $cty as [<_v9_ctx_ $cn>];)*
+                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $cn>]<'a> = &'a $cty_ref;)*
+                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $cn>]<'a> = &'a mut $cty_mut;)*
+            )*
+            #[allow(non_snake_case)]
             mod [<_v9_impl_ $name>] {
                 use $crate::prelude_macro::*;
+
                 // trickery to convert $:path to other things.
                 mod path {
-                    pub use super::super::*;
-                    $(pub use $cty as $cn;)*
+                    $(
+                        pub(super) use super::super::[<_v9_ctx_ $cn>] as $cn;
+                    )*
                 }
                 #[allow(non_camel_case_types)]
                 mod cn {

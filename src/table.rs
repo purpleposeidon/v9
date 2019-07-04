@@ -320,8 +320,8 @@ macro_rules! table {
                     }
                 }
             }
+            #[allow(unused_imports)]
             mod in_user {
-                #[allow(unused_imports)]
                 use super::super::*;
                 // Again, we have to firewall v9 from user types.
                 // Macro hygiene doesn't extend so far as `$_:ty`.

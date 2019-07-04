@@ -21,13 +21,13 @@ impl Universe {
                     let mut objects = self.objects.write().unwrap();
                     let locks = &mut kernel.locks;
                     let vals = &mut kernel.vals;
+                    let resources = &kernel.resources;
                     locks.clear();
                     // `vals.clear()` goes below so that it can be used to pass in additional arguments.
-                    for &(ty, acc) in &kernel.resources {
-                        //[vals.len()..] {
+                    for (argn, &(ty, acc)) in resources.iter().enumerate() {
                         let lock = objects
                             .get_mut(&ty)
-                            .expect("unknown argument type in kernel");
+                            .unwrap_or_else(|| panic!("kernel argument component {} (of {}) has unknown type {:?}", argn, resources.iter().count(), ty));
                         if !lock.can(acc) {
                             continue 'again;
                         }
