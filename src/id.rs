@@ -76,6 +76,10 @@ impl<M: TableMarker> Id<M> {
         Id(M::RawId::from_usize(x))
     }
     #[inline]
+    pub fn to_usize(self) -> usize {
+        M::RawId::to_usize(self.0)
+    }
+    #[inline]
     pub fn step(self, d: i8) -> Self {
         Id(self.0.offset(d))
     }
