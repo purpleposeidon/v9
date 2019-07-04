@@ -50,6 +50,7 @@ impl Universe {
                 let resources = &kernel.resources;
                 panic::catch_unwind(AssertUnwindSafe(move || {
                     run(self, rez, return_value as &mut StdAny, &mut move || {
+                        // The cleanup closure.
                         // See comment in 'fn run' KernelFn impl.
                         let mut objects = self.objects.write().expect("unable to release locks");
                         for &(ty, acc) in resources {

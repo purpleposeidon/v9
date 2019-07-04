@@ -7,4 +7,20 @@ Universe item docs are dumb
 crate docs: s/map/run
 
 # Polish
-Use RunList instead of Vec<Id<M>>
+that locking thing for improved consistency w/ an Extract cleanup
+the firewall in table! can probably go away now that we have the 'mod types'
+
+# Consistency/Ordering Issue
+
+We acquire a bunch of locks.
+We do stuff to 'em.
+Some events need to be submitted to maintain data consistency
+- So NOBODY ELSE can be acquiring locks.
+    Suppose we've got this event we need to submit.
+    It's gonna modify some other column we don't have a lock on.
+    And it's gonna modify a column we DO have a lock on
+    Nobody should be allowed to acquire those columns!
+        * We need to hold the lock on the edit column until consistency has been propagated.
+        * Doing consistency can result in ARBITRARY COLUMN ACCESS!?
+        * How 'bout this. ThreadId. Only the current thread can acquire locks.
+- They can release locks if they like.
