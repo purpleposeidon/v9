@@ -31,7 +31,7 @@ pub struct ColumnHeader {
 /// #[v9::table]
 /// pub struct cheeses {
 ///     pub quantity: f64,
-///     // NOTE: Absolute paths should be used.
+///     // NOTE: You should generally use absolute paths. You may get weird errors otherwise. :(
 ///     pub warehouse: crate::warehouses::Id,
 ///     pub stinky: bool,
 /// }

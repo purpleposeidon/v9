@@ -9,8 +9,6 @@
 //! A `Kernel` is any closure whose arguments all implement `Extract`.
 //! (The `Extract` trait works like `fn extract(&Universe) -> Self`.)
 //!
-//! See [`decl_table!`](macro.table.html) for an example of usage.
-//!
 //! # Encapsulation
 //! This crate makes an unreasonable amount of things public. This is intentional!
 //! An application should encapsulate `v9` behind its own interfaces.
@@ -28,8 +26,8 @@
 //! 4. Safety.
 //!
 //! If you've tripped over something, that we'd maybe wish didn't compile, and it doesn't
-//! blow up at runtime in an obvious way, then I'll be concerned. Monkey-proofing isn't the most
-//! important thing.
+//! blow up at runtime in an obvious way, then I'll be concerned.
+//! Monkey-proofing is not a high priority.
 // I interpret 'fast compiles' as:
 // - minimizing the code output by macros & generics.
 // - prefer dynamic dispatch to static dispatch.
