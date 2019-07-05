@@ -28,20 +28,18 @@ pub struct ColumnHeader {
 /// # Usage
 /// ```
 /// // Declare a couple tables.
-/// v9::table! {
-///     pub struct cheeses {
-///         pub quantity: f64,
-///         // NOTE: Absolute paths should be used.
-///         pub warehouse: crate::warehouses::Id,
-///         pub stinky: bool,
-///     }
+/// #[v9::table]
+/// pub struct cheeses {
+///     pub quantity: f64,
+///     // NOTE: Absolute paths should be used.
+///     pub warehouse: crate::warehouses::Id,
+///     pub stinky: bool,
 /// }
 ///
-/// v9::table! {
-///     pub struct warehouses {
-///         pub coordinates: (i32, i32),
-///         pub on_fire: bool,
-///     }
+/// #[v9::table]
+/// pub struct warehouses {
+///     pub coordinates: (i32, i32),
+///     pub on_fire: bool,
 /// }
 ///
 /// fn main() {
@@ -148,7 +146,7 @@ pub struct ColumnHeader {
 /// ## Example
 ///
 /// ```
-/// v9::table! {
+/// v9::decl_table! {
 ///     /// Some of our many fine cheeses!
 ///     #[row::derive(serde::Serialize)]
 ///     #[row::doc = "Why does our cheese keep catching on fire!??"]
@@ -165,7 +163,7 @@ pub struct ColumnHeader {
 // FIXME: Maybe I should go for a more v11-style syntax?
 // FIXME: keep the stinky_cheeses example in sync or something...?
 #[macro_export]
-macro_rules! table {
+macro_rules! decl_table {
     (
         $(#[doc = $doc:literal])*
         $(#[row::$row_meta:meta])*
@@ -176,7 +174,7 @@ macro_rules! table {
             )*
         }
     ) => {
-        $crate::table! {
+        $crate::decl_table! {
             $(#[doc = $doc])*
             $(#[row::$row_meta])*
             #[raw_index(u32)]
@@ -401,7 +399,7 @@ macro_rules! table {
                     $(pub type $cn<'a> = $crate::prelude_macro::ReadColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     pub type __V9__Iter<'a> = &'a $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     /// Read-access to the rows in a table.
-                    $crate::context! {
+                    $crate::decl_context! {
                         pub struct __Read {
                             $(pub $cn: $cn,)*
                             pub(in super::super::super) __v9__iter: __V9__Iter,
@@ -414,7 +412,7 @@ macro_rules! table {
                     $(pub type $cn<'a> = $crate::prelude_macro::EditColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     #[doc(hidden)]
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
-                    $crate::context! {
+                    $crate::decl_context! {
                         /// Write-access to the rows in a table.
                         pub struct __Edit {
                             $(pub $cn: $cn,)*
@@ -433,7 +431,7 @@ macro_rules! table {
                     $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     /// Lists valid IDs.
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
-                    $crate::context! {
+                    $crate::decl_context! {
                         /// Structural access to the table.
                         pub struct __Write {
                             $(pub $cn: $cn,)*
@@ -456,7 +454,7 @@ macro_rules! table {
 mod test {
     pub use super::*;
 
-    table! {
+    decl_table! {
         pub struct bobs {
             pub name: Name,
             pub digestion_count: u64,

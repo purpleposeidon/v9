@@ -237,16 +237,14 @@ mod test {
 /// ```
 /// # use v9::prelude::*;
 ///
-/// v9::table! {
-///   struct hello {
-///       pub foo: i32,
-///   }
+/// #[v9::table]
+/// struct hello {
+///     pub foo: i32,
 /// }
 ///
-/// v9::context! {
-///     pub struct MyContext {
-///         hi: self::hello::Edit,
-///     }
+/// #[v9::context]
+/// pub struct MyContext {
+///     hi: self::hello::Edit,
 /// }
 /// # fn main() {}
 /// ```
@@ -255,7 +253,7 @@ mod test {
 /// `struct MyContext<'a>`.
 // We could mention that it adds a module, but that hardly seems necessary with paste. :D
 #[macro_export]
-macro_rules! context {
+macro_rules! decl_context {
     (
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {

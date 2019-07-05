@@ -1,6 +1,6 @@
 use v9::prelude::*;
 
-v9::table! {
+v9::decl_table! {
     #[raw_index(u64)]
     pub struct cheeses {
         pub quantity: f64,
@@ -9,7 +9,7 @@ v9::table! {
     }
 }
 
-v9::table! {
+v9::decl_table! {
     pub struct warehouses {
         pub coordinates: (i32, i32),
         pub on_fire: bool,

@@ -19,14 +19,14 @@ pub struct PropertyHeader {
 /// ```
 /// # #[macro_use] extern crate v9;
 /// # use v9::prelude::*;
-/// property! {
+/// decl_property! {
 ///     /// Documentation can go here.
 ///     /// This property is initialized via `Default`.
 ///     #[derive(Clone)] // Derives also.
 ///     pub MY_PROPERTY: ~i32
 /// }
 ///
-/// property! {
+/// decl_property! {
 ///     // You can also initialize with an expression. Note the trailing semicolon.
 ///     pub EXPLICIT_INIT: ~i32 = 237;
 /// }
@@ -55,7 +55,7 @@ pub struct PropertyHeader {
 // future-proofing rules. Also we can't expand $meta when we have $[non]local_type selected,
 // because it whines about lockstepping.
 #[macro_export]
-macro_rules! property {
+macro_rules! decl_property {
     // Default-initialized property
     (
         $(#[$meta:meta])*
@@ -63,7 +63,7 @@ macro_rules! property {
             $(: $local_type:ty)?
             $(: ~$nonlocal_type:ty)?
     ) => {
-        property! {
+        $crate::decl_property! {
             $(#[$meta])*
             $vis $name
                 $(: $local_type)?
@@ -110,9 +110,9 @@ macro_rules! property {
                 use super::[<_v9_property_type_ $name>] as Type;
                 use super::[<_v9_property_init_ $name>] as init_fn;
 
-                $crate::property!(@wrap_nonlocal $($nonlocal_type)*; $(#[$meta])*);
+                $crate::decl_property!(@wrap_nonlocal $($nonlocal_type)*; $(#[$meta])*);
                 $(
-                    $crate::property!(@if $local_type);
+                    $crate::decl_property!(@if $local_type);
                     pub type Prop = Type;
                     use self::init_fn as localized_init_fn;
                     impl Obj for Prop {}
@@ -217,13 +217,13 @@ mod test {
         val: i32,
     }
 
-    property! {
+    decl_property! {
         MY_PROPERTY: MyProperty = MyProperty {
             val: 27,
         };
     }
 
-    property! {
+    decl_property! {
         pub SHORT_PROPERTY: ~i32
     }
 
@@ -246,9 +246,9 @@ mod test_compiles {
         val: i32,
     }
 
-    property! { MY_PROPERTY: Meh = Meh { val: 42 }; }
+    decl_property! { MY_PROPERTY: Meh = Meh { val: 42 }; }
 
-    context! {
+    decl_context! {
         #[allow(dead_code)]
         struct Stuff {
             test: &MY_PROPERTY,
@@ -256,5 +256,5 @@ mod test_compiles {
         }
     }
 
-    property! { NON_LOCAL_PROPERTY: ~i32 }
+    decl_property! { NON_LOCAL_PROPERTY: ~i32 }
 }

@@ -92,14 +92,14 @@ impl Universe {
 mod test_tracking {
     use super::*;
 
-    table! {
+    decl_table! {
         pub struct ships {
             pub name: Name,
             pub weight: u32,
         }
     }
 
-    table! {
+    decl_table! {
         pub struct sailors {
             pub name: Name,
             pub ship: ships::Id,

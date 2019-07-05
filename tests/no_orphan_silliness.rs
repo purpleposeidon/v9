@@ -1,4 +1,4 @@
-v9::table! {
+v9::decl_table! {
     pub struct boats {
         pub name: &'static str,
     }

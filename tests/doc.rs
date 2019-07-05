@@ -1,4 +1,4 @@
-v9::table! {
+v9::decl_table! {
     /// This is my table.
     /// There are many like it.
     #[raw_index(u8)]

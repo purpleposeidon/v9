@@ -2,7 +2,7 @@
 use v9::prelude::*;
 use std::any::*;
 
-table! {
+decl_table! {
     pub struct person {
         pub id: u64,
         pub town: crate::town::Id,
@@ -10,21 +10,21 @@ table! {
     }
 }
 
-table! {
+decl_table! {
     pub struct town {
         pub id: u32,
         pub kingdom: crate::kingdom::Id,
     }
 }
 
-table! {
+decl_table! {
     pub struct kingdom {
         pub id: u16,
         pub continent: crate::continent::Id,
     }
 }
 
-table! {
+decl_table! {
     pub struct continent {
         pub id: u8,
     }

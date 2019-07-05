@@ -9,7 +9,7 @@
 //! A `Kernel` is any closure whose arguments all implement `Extract`.
 //! (The `Extract` trait works like `fn extract(&Universe) -> Self`.)
 //!
-//! See [`table!`](macro.table.html) for an example of usage.
+//! See [`decl_table!`](macro.table.html) for an example of usage.
 //!
 //! # Encapsulation
 //! This crate makes an unreasonable amount of things public. This is intentional!
@@ -37,6 +37,12 @@
 #[macro_use]
 extern crate mopa;
 
+#[allow(unused_imports)]
+#[macro_use]
+extern crate v9_attr;
+#[doc(hidden)]
+pub use v9_attr::*;
+
 #[doc(hidden)]
 pub extern crate paste;
 
@@ -63,7 +69,7 @@ pub mod prelude {
     pub use crate::table::TableMarker;
 }
 
-/// Provides a single import statement for `table!`.
+/// Provides a single import statement for `decl_table!`.
 pub mod prelude_macro {
     pub use crate::column::{Column, EditColumn, ReadColumn, WriteColumn};
     pub use crate::extract::*;

@@ -1,19 +1,24 @@
+extern crate v9;
 
 // Declare a couple tables.
-v9::table! {
-    #[row::derive(Copy)]
-    pub struct cheeses {
-        pub quantity: f64,
-        pub warehouse: crate::warehouses::Id,
-        pub stinky: bool,
-    }
+#[v9::table]
+#[row::derive(Copy)]
+pub struct cheeses {
+    pub quantity: f64,
+    pub warehouse: crate::warehouses::Id,
+    pub stinky: bool,
 }
 
-v9::table! {
-    pub struct warehouses {
-        pub coordinates: (i32, i32),
-        pub on_fire: bool,
-    }
+#[v9::table]
+pub struct warehouses {
+    pub coordinates: (i32, i32),
+    pub on_fire: bool,
+}
+
+#[v9::property]
+#[derive(Default)]
+pub struct window {
+    instance: u32,
 }
 
 fn main() {

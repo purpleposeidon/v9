@@ -78,7 +78,7 @@ impl Universe {
 ///
 /// If your closure isn't a `Kernel`, ensure that:
 /// 1. All arguments are `Extract`.
-/// 2. You don't have an unreasonable number of arguments. (If necessary, you can group them up via `context!`.)
+/// 2. You don't have an unreasonable number of arguments. (If necessary, you can group them up via `decl_context!`.)
 /// 3. The return value is `()`.
 pub unsafe trait KernelFn<Dump, Ret>: 'static + Send + Sync {
     // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
