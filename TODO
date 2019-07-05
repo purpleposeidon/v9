@@ -7,11 +7,14 @@ Universe item docs are dumb
 crate docs: s/map/run
 
 # Polish
-that locking thing for improved consistency w/ an Extract cleanup
 the firewall in table! can probably go away now that we have the 'mod types'
 
-# Consistency/Ordering Issue
+crate::macro_prelude
+ -> crate::tables::prelude
 
+remove abs path requirement on tables
+
+# Consistency/Ordering Issue
 We acquire a bunch of locks.
 We do stuff to 'em.
 Some events need to be submitted to maintain data consistency

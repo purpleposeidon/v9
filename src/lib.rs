@@ -1,5 +1,5 @@
 //! A data engine for [Data Oriented Design](http://dataorienteddesign.com/).
-//! `crate:v9` is a vastly simpler version of `crate:v11`.
+//! `crate:v9` is a vastly simpler version of `crate:v11`. [<u><b>Example code</b></u>](macro.decl_table.html#usage)
 //!
 //! # Design
 //! A `Universe` works like a `HashMap<TypeId, Any>`.
