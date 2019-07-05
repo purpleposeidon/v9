@@ -271,9 +271,9 @@ macro_rules! decl_context {
             $vis use self::[<_v9_impl_ $name>]::$name;
 
             $(
-                $(#[allow(non_camel_case_types)] use $cty as [<_v9_ctx_ $cn>];)*
-                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $cn>]<'a> = &'a $cty_ref;)*
-                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $cn>]<'a> = &'a mut $cty_mut;)*
+                $(#[allow(non_camel_case_types)] use $cty as [<_v9_ctx_ $name _ $cn>];)*
+                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $name _ $cn>]<'a> = &'a $cty_ref;)*
+                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $name _ $cn>]<'a> = &'a mut $cty_mut;)*
             )*
             #[allow(non_snake_case)]
             mod [<_v9_impl_ $name>] {
@@ -282,7 +282,7 @@ macro_rules! decl_context {
                 // trickery to convert $:path to other things.
                 mod path {
                     $(
-                        pub(super) use super::super::[<_v9_ctx_ $cn>] as $cn;
+                        pub(super) use super::super::[<_v9_ctx_ $name _ $cn>] as $cn;
                     )*
                 }
                 #[allow(non_camel_case_types)]
