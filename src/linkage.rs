@@ -255,6 +255,9 @@ impl Selection {
         seen.insert(TypeId::of::<FM>(), Box::new(sel) as Box<Any + Send + Sync>);
         Selection { seen }
     }
+    pub fn add_stub<T: StdAny>(&mut self) {
+        self.seen.insert(TypeId::of::<T>(), Box::new(()));
+    }
 }
 #[derive(Default)]
 pub struct Select<FM> {
