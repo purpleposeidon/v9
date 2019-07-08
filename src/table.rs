@@ -475,6 +475,18 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn duplicate_column_types() {
+        decl_table! {
+            pub struct dupes {
+                pub speed: f32,
+                pub scale: f32,
+            }
+        }
+        dupes::Marker::register(&mut Universe::new());
+    }
+
+    #[test]
     fn basics() {
         let universe = &mut Universe::new();
         bobs::Marker::register(universe);
