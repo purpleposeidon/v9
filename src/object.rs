@@ -95,6 +95,9 @@ impl Universe {
 }
 
 impl Universe {
+    pub fn clone_value<T: Obj + Clone>(&self) -> T {
+        self.with(T::clone)
+    }
     pub fn with<T: Obj, R>(&self, f: impl FnOnce(&T) -> R) -> R {
         self.with_obj(TypeId::of::<T>(), |obj| {
             let obj = obj.downcast_ref().expect("type mismatch");
