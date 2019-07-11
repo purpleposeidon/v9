@@ -150,7 +150,7 @@ macro_rules! decl_property {
     };
 
     // Matches on a 'branch' without producing any tokens.
-    (@if $tt:tt) => {};
+    (@if $ty:ty) => {};
 
     // Work-around for lockstep issue.
     (@wrap_nonlocal ; $(#[$meta:meta])*) => {};

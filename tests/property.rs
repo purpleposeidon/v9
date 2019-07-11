@@ -10,6 +10,14 @@ decl_property! { MY_PROPERTY: Meh = Meh { val: 42 }; }
 
 decl_property! { ASSERT_DOESNT_COMPILE_HAS_NICE_ERROR: ~i32 }
 
+#[derive(Default)]
+pub struct Param<T> {
+    _val: T,
+}
+
+decl_property! { ASSERT_PARAMETERS_WORK: Param<Vec<i32>> }
+
+
 #[v9::table]
 pub struct boop {
     pub foo: bool,
