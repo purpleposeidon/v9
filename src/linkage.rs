@@ -3,6 +3,7 @@ use crate::column::*;
 use crate::event::*;
 use crate::kernel::{Kernel, KernelArg, KernelFn};
 use crate::prelude_lib::*;
+use crate::id::IdRange;
 use std::collections::{BTreeMap, HashMap};
 use std::any::{Any, TypeId};
 use std::mem;
@@ -14,7 +15,7 @@ impl<M: TableMarker, T: Ord + Clone> ColumnIndex<M, T> {
     pub fn full_range(t: T) -> StdRange<(T, Id<M>)> {
         (t.clone(), Id(M::RawId::ZERO))..(t, Id(M::RawId::LAST))
     }
-    pub fn find<'a>(&'a self, t: T) -> impl Iterator<Item=Id<M>> + 'a {
+    pub fn find<'a>(&'a self, t: T) -> impl DoubleEndedIterator<Item=Id<M>> + 'a {
         self.map
             .range(Self::full_range(t))
             .map(|((_, i), _)| *i)
@@ -225,7 +226,96 @@ impl<FM: TableMarker> Id<FM> {
         );
     }
 }
-
+impl<FM: TableMarker> IdRange<'static, Id<FM>> {
+    pub fn __v9_link_foreign_table_name() -> Option<Name> {
+        Some(FM::NAME)
+    }
+    pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
+        universe.add_index::<LM, Self>();
+        universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
+            TypeId::of::<LM>(),
+            |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
+                let deleting = list.deleting.get_mut();
+                let mut prev = IdRange::empty();
+                for fid in &ev.ids {
+                    if prev.contains(fid) {
+                        // We've already removed this ID.
+                        continue;
+                    }
+                    let range = {
+                        let ll = Id(LM::RawId::LAST);
+                        let fl = Id(FM::RawId::LAST);
+                        let back = (IdRange::on(fid, fl), ll);
+                        ..back
+                    };
+                    let mut iter = index.map.range(range);
+                    // Option<(&(IdRange<Id<FM>>, Id<LM>), &())>
+                    while let Some(((frange, lid), ())) = iter.next_back() {
+                        if frange.contains(fid) {
+                            prev = *frange;
+                            deleting.push(*lid);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            },
+        );
+        // FIXME: 'Moved' is kinda hard. :/
+        let mut is_tracked: Option<bool> = None;
+        universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
+            TypeId::of::<LM>(),
+            move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: *const Universe| {
+                // 8. Push the local ids of the foreign ids; we have them indexed.
+                let foreign: &RunList<FM> = if let Some(f) = ev.selection.get() { f } else { return; };
+                let mut got = vec![];
+                let mut prev = IdRange::empty();
+                for fid in foreign.iter() {
+                    if prev.contains(fid) {
+                        // We've already removed this ID.
+                        continue;
+                    }
+                    let range = {
+                        let ll = Id(LM::RawId::LAST);
+                        let fl = Id(FM::RawId::LAST);
+                        let back = (IdRange::on(fid, fl), ll);
+                        ..back
+                    };
+                    let mut iter = index.map.range(range);
+                    while let Some(((frange, lid), ())) = iter.next_back() {
+                        if frange.contains(fid) {
+                            prev = *frange;
+                            got.push(*lid);
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                if got.is_empty() { return; }
+                got.sort();
+                // FIXME: See id.rs/timsort. 1) Are these runs? 2) Is timsort faster than unstable?
+                got.dedup();
+                let mut out: Box<RunList<LM>> = ev.selection.ordered();
+                for i in got.into_iter() {
+                    out.push(i);
+                }
+                ev.selection.deliver(out);
+                unsafe {
+                    let universe: &Universe = &*universe;
+                    if is_tracked.is_none() {
+                        is_tracked = Some(universe.is_tracked::<Select<LM>>());
+                    }
+                    if let Some(false) = is_tracked { return; }
+                    let mut sub: Select<LM> = Default::default();
+                    mem::swap(&mut sub.selection, &mut ev.selection);
+                    universe.submit_event(&mut sub);
+                    mem::swap(&mut sub.selection, &mut ev.selection);
+                }
+            },
+        );
+    }
+}
+// FIXME: We could do RunList as well
 
 /// Holds a bunch of `RunList`s.
 #[derive(Debug, Default)]

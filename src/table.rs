@@ -210,6 +210,7 @@ macro_rules! decl_table {
                 pub const NAME: &'static str = stringify!($name);
                 /// A strongly typed index into the table.
                 pub type Id = IdV9<Marker>;
+                pub type Range = IdRange<'static, Id>;
                 /// The valid IDs. Kernels should take this by reference. Prefer using `List`.
                 pub type Ids = IdList<Marker>;
                 /// A 'pre-checked' index into the table. Values of this type are known to 

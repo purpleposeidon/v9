@@ -4,7 +4,7 @@ use crate::event::*;
 use crate::prelude_lib::*;
 use std::cell::RefCell;
 use std::fmt;
-use std::ops::RangeInclusive;
+use std::ops::{Range, RangeInclusive};
 use std::iter::Peekable;
 
 type Run<M> = (Id<M>, Id<M>);
@@ -144,10 +144,11 @@ pub unsafe trait Check<'a>: Copy + Ord + fmt::Debug {
         }
     }
     fn uncheck(&self) -> Id<Self::M> {
-        Id::from_usize(self.to_usize())
+        Id(self.to_raw())
     }
     unsafe fn step(self, d: i8) -> Self;
     fn to_usize(&self) -> usize;
+    fn to_raw(&self) -> <Self::M as TableMarker>::RawId;
 }
 unsafe impl<'a, M: TableMarker> Check<'a> for CheckedId<'a, M> {
     type M = M;
@@ -172,6 +173,7 @@ unsafe impl<'a, M: TableMarker> Check<'a> for CheckedId<'a, M> {
     ) -> CheckedId<'a, Self::M> {
         *self
     }
+    fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.id.0 }
 }
 unsafe impl<'a, M: TableMarker> Check<'a> for Id<M> {
     type M = M;
@@ -184,6 +186,7 @@ unsafe impl<'a, M: TableMarker> Check<'a> for Id<M> {
     unsafe fn step(self, d: i8) -> Self {
         Id(self.0.offset(d))
     }
+    fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.0 }
 }
 impl<'a, M: TableMarker> Into<Id<M>> for CheckedId<'a, M> {
     fn into(self) -> Id<M> {
@@ -197,7 +200,7 @@ impl<M: TableMarker> From<usize> for Id<M> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub struct IdRange<'a, I: Check<'a>> {
     pub(crate) _a: PhantomData<&'a ()>,
     pub start: I,
@@ -224,6 +227,15 @@ impl<'a, I: Check<'a>> IdRange<'a, I> {
             self.start = self.start.step(1);
             Some(ret)
         }
+    }
+    pub fn contains<'b, O>(&self, i: O) -> bool
+    where
+        O: Check<'b, M=I::M>,
+    {
+        let start = self.start.to_raw();
+        let end = self.end.to_raw();
+        let i = i.to_raw();
+        start <= i && i < end
     }
 }
 impl<M: TableMarker> IdRange<'static, Id<M>> {
@@ -280,6 +292,15 @@ where
     }
 }
 pub type UncheckedIdRange<M> = IdRange<'static, Id<M>>;
+impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
+    fn from(r: Range<Id<M>>) -> Self {
+        IdRange {
+            _a: PhantomData,
+            start: r.start,
+            end: r.end,
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct IdList<M: TableMarker> {
@@ -473,6 +494,7 @@ unsafe impl<'a, M: TableMarker> Check<'a> for RmId<'a, M> {
     fn to_usize(&self) -> usize {
         self.id.to_usize()
     }
+    fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.id.0 }
     unsafe fn step(self, d: i8) -> Self {
         RmId {
             id: self.id.step(d),
