@@ -237,6 +237,11 @@ impl<'a, I: Check<'a>> IdRange<'a, I> {
         let i = i.to_raw();
         start <= i && i < end
     }
+    pub fn len(&self) -> usize {
+        let start = self.start.to_raw().to_usize();
+        let end = self.end.to_raw().to_usize();
+        end - start
+    }
 }
 impl<M: TableMarker> IdRange<'static, Id<M>> {
     pub fn on(start: Id<M>, end: Id<M>) -> Self {
