@@ -409,6 +409,11 @@ impl<M: TableMarker> IdList<M> {
         }
     }
 }
+impl<'a, M: TableMarker> IntoIterator for &'a IdList<M> {
+    type Item = CheckedId<'a, M>;
+    type IntoIter = CheckedIter<'a, M>;
+    fn into_iter(self) -> Self::IntoIter { self.iter() }
+}
 pub struct ListRemoving<'a, M: TableMarker> {
     checked: CheckedIter<'a, M>,
     deleting: &'a SyncRef<RunList<M>>,
