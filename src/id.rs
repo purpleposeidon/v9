@@ -85,7 +85,9 @@ impl<M: TableMarker> Id<M> {
     }
     #[inline]
     pub fn next(self) -> Self { self.step(1) }
+    #[inline]
     pub fn zero() -> Self { Id(M::RawId::ZERO) }
+    #[inline]
     pub fn last() -> Self { Id(M::RawId::LAST) }
 }
 
