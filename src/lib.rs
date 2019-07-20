@@ -65,6 +65,7 @@ pub mod util;
 pub mod prelude {
     pub use crate::object::{Universe, Register};
     pub use crate::table::TableMarker;
+    pub use crate::id::Check as _;
 }
 
 /// Provides a single import statement for `decl_table!`.
