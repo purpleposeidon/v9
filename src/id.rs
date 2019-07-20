@@ -6,10 +6,11 @@ use std::cell::RefCell;
 use std::fmt;
 use std::ops::{Range, RangeInclusive};
 use std::iter::Peekable;
+use std::hash;
 
 type Run<M> = (Id<M>, Id<M>);
 
-pub trait Raw: 'static + Copy + fmt::Debug + Ord + Send + Sync + serde::Serialize + serde::de::DeserializeOwned {
+pub trait Raw: 'static + Copy + fmt::Debug + Ord + Send + Sync + hash::Hash + serde::Serialize + serde::de::DeserializeOwned {
     fn to_usize(self) -> usize;
     fn from_usize(x: usize) -> Self;
     fn offset(self, d: i8) -> Self;
@@ -48,6 +49,11 @@ pub struct Id<M: TableMarker>(pub M::RawId);
 impl<M: TableMarker> PartialEq for Id<M> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+}
+impl<M: TableMarker> hash::Hash for Id<M> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        hash::Hash::hash(&self.0, state);
     }
 }
 impl<M: TableMarker> Eq for Id<M> {}
