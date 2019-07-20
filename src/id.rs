@@ -209,7 +209,10 @@ impl<M: TableMarker> From<usize> for Id<M> {
 }
 
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(bound = "I: serde::Serialize + serde::de::DeserializeOwned")]
 pub struct IdRange<'a, I: Check<'a>> {
+    #[serde(skip)]
     pub(crate) _a: PhantomData<&'a ()>,
     pub start: I,
     pub end: I,
