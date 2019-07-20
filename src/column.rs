@@ -56,7 +56,6 @@ pub struct WriteColumn<'a, M: TableMarker, T> {
 fn disordered_column_access() -> ! { panic!("disordered column access") }
 impl<'a, I, M: TableMarker, T> Index<I> for ReadColumn<'a, M, T>
 where
-    T: Clone,
     I: Check<'a, M = M>,
 {
     type Output = T;
