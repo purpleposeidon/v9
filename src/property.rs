@@ -1,6 +1,6 @@
 use crate::prelude_lib::*;
 
-pub trait PropertyMarker: Register {
+pub trait PropertyMarker: 'static + Register + Send + Sync {
     const NAME: Name;
     fn header() -> PropertyHeader;
 }
