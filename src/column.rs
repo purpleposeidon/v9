@@ -12,6 +12,8 @@ pub type NoSend = PhantomData<*mut ()>;
 pub struct Column<M: TableMarker, T> {
     #[serde(skip)]
     pub table_marker: M,
+    // NB: This is unsafe to access. You could make the columns have different lengths.
+    #[doc(hidden)]
     pub data: Vec<T>,
 }
 impl<M: TableMarker, T> Default for Column<M, T> {
@@ -27,6 +29,9 @@ impl<M: TableMarker, T> Column<M, T> {
             data: vec![],
         }
     }
+    #[inline(always)] pub fn data(&self) -> &Vec<T> { &self.data }
+    #[inline(always)] pub unsafe fn data_mut(&mut self) -> &mut Vec<T> { &mut self.data }
+    #[inline(always)] pub fn set_data(&mut self, d: Vec<T>) { self.data = d }
 }
 
 pub struct ReadColumn<'a, M: TableMarker, T> {

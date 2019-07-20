@@ -26,8 +26,11 @@ pub struct ColumnHeader {
 /// Defines a table. This is the most important item in the crate!
 ///
 /// # Usage
+/// This macro is called `decl_table!`, but it's nicer to use it as `#[v9::table]`. This spares you
+/// some indentation, and lets IDEs do "jump to definition".
 /// ```
 /// // Declare a couple tables.
+/// // Note the snake_casing. The table macro actually epxands this into a module.
 /// #[v9::table]
 /// pub struct cheeses {
 ///     pub quantity: f64,
@@ -52,9 +55,8 @@ pub struct ColumnHeader {
 ///     cheeses::Marker::register(&mut universe);
 ///     warehouses::Marker::register(&mut universe);
 ///
-///     // Let's print out an inventory.
-///     use v9::kernel::Kernel;
-///     let mut print_inventory = Kernel::new(|cheeses: cheeses::Read, warehouses: warehouses::Read| {
+///     // Let's write a closure to print out the inventory.
+///     let print_inventory = |cheeses: cheeses::Read, warehouses: warehouses::Read| {
 ///         println!("  Warehouses:");
 ///         for id in warehouses.iter() {
 ///             println!("    {:?}", warehouses.ref_row(id));
@@ -63,10 +65,13 @@ pub struct ColumnHeader {
 ///         for id in cheeses.iter() {
 ///             println!("    {:?}", cheeses.ref_row(id));
 ///         }
-///     });
+///     };
 ///     // The kernel holds our closure, and keeps track of all of the arguments it requires.
+///     use v9::kernel::Kernel;
+///     let mut print_inventory = Kernel::new(print_inventory);
 ///     println!("An empty inventory:");
 ///     universe.run(&mut print_inventory);
+///
 ///     // If we don't care allocation, you can use kmap. It reduces noise.
 ///     // Let's use it add some things:
 ///     universe.kmap(|mut warehouses: warehouses::Write, mut cheeses: cheeses::Write| {
@@ -122,20 +127,30 @@ pub struct ColumnHeader {
 /// }
 /// ```
 ///
+/// # Output
+/// [**OUTPUT EXAMPLE**](table/example/cheeses/index.html)
+///
 /// # Details
 ///
 /// There's several things to be aware of.
-/// 1. Naming. The item name should be lowercase (it becomes a module), and plural. The names of
-///    columns should be singular. (Unless it should be, like in `pub aliases: Vec<String>`.)
+/// 1. Naming. The item name should be snake case (it becomes a module), and plural. The names of
+///    columns should be singular, because they will be used like `students.mailing_address[student_id]`.
+///    (Unless the element itself is plural, eg if `students.known_aliases[student_id]` is a `Vec<String>`.)
 /// 2. The macro syntax kind of looks like a struct… but it very much is not.
 /// 3. Type paths should be absolute, not relative.
 /// 4. The "struct"'s visiblity may be anything, but the fields are always `pub`.
+/// 5. Each column must have a unique element type. A table with columns `age: u64, income: u64`
+///    *will not work*. You can wrap the structs in a newtype. (I have created the [crate
+///    `new_units`](https://crates.io/crates/new_units) to help cope with this.) Or if you don't
+///    care about memory access patterns you can combine the columns into a single Array Of Structs column.
 ///
 /// # Meta-Attributes
-/// There are certain meta-attributes that may be placed on the "struct". They must be provided in the order given here:
+/// There are certain meta-attributes that may be placed on the "struct". Due to `macro_rules`
+/// silliness, **they must be given in the order listed here**:
 /// 1. Documentation. It is placed on the generated module.
-/// 2. `#[row::<meta>]`* Passes meta-attributes to the `Row`; eg `#[row::derive(serde::Serialize))]`.
-///    `#[row::derive(Clone, Debug)]` is always provided.
+/// 2. `#[row::<meta>]`* Passes meta-attributes to the generated `struct Row`; eg `#[row::derive(serde::Serialize))]`.
+///    `#[row::derive(Clone, Debug)]` is always provided. (If your type is inconvenient to clone,
+///    consider wrapping it in an `Arc`, or something that panics.)
 /// 3. `#[raw_index(u32)]`. Defines the type used to index. The default is `u32`. Must be [`Raw`].
 ///    The last index is generally considered to be 'invalid'.
 ///
@@ -207,15 +222,21 @@ macro_rules! decl_table {
             mod in_v9 {
                 use $crate::prelude_macro::*;
                 use super::in_user::{Read, Write, Edit, Row, RowRef};
+                /// Table's name.
                 pub const NAME: &'static str = stringify!($name);
                 /// A strongly typed index into the table.
                 pub type Id = IdV9<Marker>;
+                /// A contiguous range of `Id`s on this table.
                 pub type Range = IdRange<'static, Id>;
                 /// The valid IDs. Kernels should take this by reference. Prefer using `List`.
                 pub type Ids = IdList<Marker>;
-                /// A 'pre-checked' index into the table. Values of this type are known to 
+                /// A 'pre-checked' index into the table. This index is known to be within the
+                /// array bounds.
                 pub type CheckedId<'a> = CheckedIdV9<'a, Marker>;
+                /// Id 0.
                 pub const FIRST: IdV9<Marker> = IdV9(0);
+                /// The last possible Id.
+                // FIXME: Assert that we panic if this is reached?
                 pub const INVALID: IdV9<Marker> = IdV9(<$raw as Raw>::LAST);
                 /// Holds static information about the table.
                 #[derive(Default, Copy, Clone)]
@@ -231,6 +252,7 @@ macro_rules! decl_table {
                     }
                 }
 
+                /// Column names.
                 pub mod names {
                     $(pub const $cn: &'static str = concat!(stringify!($table), ".", stringify!($cn));)*
                 }
@@ -281,7 +303,7 @@ macro_rules! decl_table {
                     }
                     pub fn reserve(&mut self, n: usize) {
                         unsafe {
-                            $(self.$cn.col.get_mut().data.reserve(n);)*
+                            $(self.$cn.col.get_mut().data_mut().reserve(n);)*
                         }
                     }
                     pub fn push(&mut self, row: Row) -> Id {
@@ -290,12 +312,12 @@ macro_rules! decl_table {
                                 Ok(id) => {
                                     let i = id.to_usize();
                                     $(
-                                        *self.$cn.col.get_mut().data.get_unchecked_mut(i) = row.$cn;
+                                        *self.$cn.col.get_mut().data_mut().get_unchecked_mut(i) = row.$cn;
                                     )*
                                     id
                                 },
                                 Err(id) => {
-                                    $(self.$cn.col.get_mut().data.push(row.$cn);)*
+                                    $(self.$cn.col.get_mut().data_mut().push(row.$cn);)*
                                     id
                                 },
                             }
@@ -387,11 +409,14 @@ macro_rules! decl_table {
                     $(pub $cn: &'a $cty,)*
                 }
 
+                /// The type of the element of a column.
                 pub mod types {
                     #[allow(unused_imports)]
                     use super::super::super::*;
                     $(pub type $cn = $cty;)*
                 }
+                /// The type of the columns that are actually stored in the universe.
+                /// You'll usually want `read::MyColumn` or `edit::MyColumn`.
                 pub mod own {
                     $(pub type $cn = $crate::prelude_macro::Column<super::super::in_v9::Marker, super::types::$cn>;)*
                 }
@@ -399,8 +424,8 @@ macro_rules! decl_table {
                 pub mod read {
                     $(pub type $cn<'a> = $crate::prelude_macro::ReadColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     pub type __V9__Iter<'a> = &'a $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
-                    /// Read-access to the rows in a table.
                     $crate::decl_context! {
+                        /// Read-access to the rows in a table.
                         pub struct __Read {
                             $(pub $cn: $cn,)*
                             pub(in super::super::super) __v9__iter: __V9__Iter,
@@ -414,7 +439,8 @@ macro_rules! decl_table {
                     #[doc(hidden)]
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     $crate::decl_context! {
-                        /// Write-access to the rows in a table.
+                        /// Modification-access to the elements of a table. This does **not** allow adding or
+                        /// removing rows. Changes will be logged if necessary.
                         pub struct __Edit {
                             $(pub $cn: $cn,)*
                             #[doc(hidden)]
@@ -433,7 +459,8 @@ macro_rules! decl_table {
                     /// Lists valid IDs.
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     $crate::decl_context! {
-                        /// Structural access to the table.
+                        /// Structural access to the table. You can push or delete rows. However,
+                        /// existing elements can not be modified.
                         pub struct __Write {
                             $(pub $cn: $cn,)*
                             #[doc(hidden)]
@@ -516,5 +543,18 @@ mod test {
         let universe = &mut Universe::new();
         bobs::Marker::register(universe);
         universe.kmap(|_: bobs::read::name, _: bobs::edit::digestion_count| {});
+    }
+}
+
+// FIXME: It'd be nice to have `cfg(doc)`.
+#[cfg(not(release))]
+pub mod example {
+    decl_table! {
+        /// Our many fine cheeses!
+        pub struct cheeses {
+            pub quantity: f64,
+            // NOTE: You should generally use absolute paths. You may get weird errors otherwise. :(
+            pub stinky: bool,
+        }
     }
 }

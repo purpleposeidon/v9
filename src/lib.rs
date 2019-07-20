@@ -21,9 +21,10 @@
 //!
 //! My priorities are:
 //! 1. A clean API.
-//! 2. Fast compiles.
-//! 3. Gotta go fast.
-//! 4. Safety.
+//! 2. Gotta go fast:
+//!     - Compile-times must be fast.
+//!     - Bulk operations (mainly the kernels) must be h*ckin' fast.
+//! 3. Safety.
 //!
 //! If you've tripped over something, that we'd maybe wish didn't compile, and it doesn't
 //! blow up at runtime in an obvious way, then I'll be concerned.

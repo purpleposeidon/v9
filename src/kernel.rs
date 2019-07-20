@@ -77,9 +77,13 @@ impl Universe {
 /// Implemented for certain closures.
 ///
 /// If your closure isn't a `Kernel`, ensure that:
-/// 1. All arguments are `Extract`.
+/// 1. All arguments are `Extract`. (You can test this by writing `fn assert<T: Extract>() {}
+///    assert::<T>();`)
 /// 2. You don't have an unreasonable number of arguments. (If necessary, you can group them up via `decl_context!`.)
-/// 3. The return value is `()`.
+/// 3. The return value is appropriate. `Kernel` itself has no restrictions on the return type,
+///    however:
+///    - `kmap` requires the return value be `()`.
+///    - `kmap_return` and `run_return` requires `Any`, which means it must be `'static`.
 pub unsafe trait KernelFn<Dump, Ret>: 'static + Send + Sync {
     // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
     // FIXME: What if we passed in `&mut Any=Option<R>`?

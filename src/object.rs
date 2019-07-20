@@ -1,3 +1,4 @@
+///! The `Universe`, and interacting with it as a data structure.
 use crate::prelude_lib::*;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
@@ -237,23 +238,25 @@ mod test {
 ///
 /// Each field of the struct must be `Extract`, *AND* its kind must be `type T<'a> = …`.
 ///
+/// The macro adds a lifetime to everything, so in the example the declared item comes out
+/// `struct MyContext<'a>`.
+///
+/// # Example
 /// ```
 /// # use v9::prelude::*;
-///
-/// #[v9::table]
-/// struct hello {
-///     pub foo: i32,
-/// }
-///
+/// #
+/// # #[v9::table]
+/// # struct my_table {
+/// #     pub foo: i32,
+/// # }
+/// #
 /// #[v9::context]
 /// pub struct MyContext {
-///     hi: self::hello::Edit,
+///     hi: self::my_table::Edit,
 /// }
 /// # fn main() {}
 /// ```
 ///
-/// The macro adds a lifetime to everything, so in the example below the declared item comes out
-/// `struct MyContext<'a>`.
 // We could mention that it adds a module, but that hardly seems necessary with paste. :D
 #[macro_export]
 macro_rules! decl_context {
