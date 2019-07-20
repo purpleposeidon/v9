@@ -46,6 +46,11 @@ mod raw_impl {
 #[serde(bound = "M: 'static")]
 #[serde(transparent)]
 pub struct Id<M: TableMarker>(pub M::RawId);
+impl<M: TableMarker> Default for Id<M> {
+    fn default() -> Self {
+        Self(<M::RawId as Raw>::LAST)
+    }
+}
 impl<M: TableMarker> PartialEq for Id<M> {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
