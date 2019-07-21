@@ -306,6 +306,9 @@ macro_rules! decl_table {
                             $(self.$cn.col.get_mut().data_mut().reserve(n);)*
                         }
                     }
+                    pub fn next_id(&self) -> Id {
+                        self.__v9__iter.next_id()
+                    }
                     pub fn push(&mut self, row: Row) -> Id {
                         unsafe {
                             match self.__v9__iter.recycle_id() {

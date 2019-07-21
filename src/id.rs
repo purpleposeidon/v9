@@ -390,6 +390,9 @@ impl<M: TableMarker> IdList<M> {
         }
         // (Also it'd be nice to just transmute from removing2(),
         // but I get some BS error about varying size.)
+        // What if we did
+        //    fn removing<'a>(&mut self, &'a ()) -> ListRemoving<'a, M>
+        // Maybe we could pass in &mut true, and it set it to false?
     }
     #[doc(hidden)]
     pub fn removing2<'a, 'b>(&'a mut self) -> ListRemoving<'b, M>
@@ -405,6 +408,7 @@ impl<M: TableMarker> IdList<M> {
         }
     }
     pub unsafe fn recycle_id(&mut self) -> Result<Id<M>, Id<M>> {
+        // FIXME: Why unsafe?
         if let Some(id) = self.free.pop() {
             Ok(id)
         } else {
@@ -412,6 +416,12 @@ impl<M: TableMarker> IdList<M> {
             self.len += 1;
             Err(Id::from_usize(i))
         }
+    }
+    pub fn next_id(&self) -> Id<M> {
+        self.free.last()
+            .unwrap_or_else(|| {
+                Id::from_usize(self.len)
+            })
     }
 }
 impl<'a, M: TableMarker> IntoIterator for &'a IdList<M> {
@@ -658,6 +668,17 @@ impl<M: TableMarker> RunList<M> {
                     self.data.push((a, b.step(-1)));
                     b
                 },
+            })
+        } else {
+            None
+        }
+    }
+    pub fn last(&self) -> Option<Id<M>> {
+        if let Some((a, b)) = self.data.last().cloned() {
+            Some(match a.cmp(&b) {
+                Ordering::Greater => a,
+                Ordering::Equal => a,
+                Ordering::Less => b,
             })
         } else {
             None
