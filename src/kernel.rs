@@ -95,7 +95,7 @@ pub unsafe trait KernelFn<Dump, Ret>: 'static + Send + Sync {
 /// Works like a `Box<KernelFn>`.
 pub struct Kernel {
     resources: Vec<(TypeId, Access)>,
-    run: Box<dyn FnMut(&Universe, Rez, &mut StdAny, &mut (dyn FnMut() + Send + Sync)) + Send + Sync>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut StdAny, &mut dyn FnMut()) + Send + Sync>,
     locks: Vec<(*mut Locked, Access)>,
     vals: Vec<(*mut dyn Obj, Access)>,
 }
