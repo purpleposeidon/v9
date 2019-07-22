@@ -8,6 +8,21 @@ use std::collections::{BTreeMap, HashMap};
 use std::any::{Any, TypeId};
 use std::mem;
 
+pub type IndexOf<C> = ColumnIndex<
+    <C as LiftColumn>::M,
+    <C as LiftColumn>::T,
+>;
+#[doc(hidden)]
+pub trait LiftColumn {
+    type M;
+    type T;
+}
+impl<M: TableMarker, T> LiftColumn for Column<M, T> {
+    type M = M;
+    type T = T;
+}
+
+
 pub struct ColumnIndex<M: TableMarker, T: Ord> {
     pub map: BTreeMap<(T, Id<M>), ()>,
 }
