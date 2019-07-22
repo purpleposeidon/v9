@@ -3,7 +3,7 @@
 use crate::prelude_lib::*;
 use self::panic::AssertUnwindSafe;
 use std::collections::HashSet;
-use std::cell::RefCell;
+use std::cell::Cell;
 
 impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
@@ -73,19 +73,22 @@ impl Universe {
     where
         K: KernelFn<Dump, Ret>,
     {
+        // FIXME: There's some efficiency that could be squeezed outta this.
+        // We could store a 'trusted kernel type', and skip the validation.
         unsafe {
             let mut buffer = LockBuffer::new::<Dump, Ret, K>();
-            let ret = &RefCell::new(Option::<Ret>::None);
-            let run = move |universe: &Universe, rez: Rez, _ret: &mut StdAny, cleanup: &mut dyn FnMut()| {
-                *ret.borrow_mut() = Some(k.run(universe, rez, cleanup));
+            let ret = Cell::new(Option::<Ret>::None);
+            let run = |universe: &Universe, rez: Rez, _ret: &mut StdAny, cleanup: &mut dyn FnMut()| {
+                let got = k.run(universe, rez, cleanup);
+                ret.set(Some(got));
             };
             self.execute_from_buffer(&mut buffer, run, &mut ());
-            let mut ret = ret.borrow_mut();
-            ret.take().expect("return value not set")
+            ret.into_inner().take().expect("return value not set")
         }
     }
 
     /// Quick & dirty `Kernel` `run`ner. This is provided to simplify tests.
+    // FIXME: Delete this.
     pub fn kmap<Dump, K>(&self, k: K)
     where
         K: KernelFn<Dump, ()>,
