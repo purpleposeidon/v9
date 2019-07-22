@@ -262,10 +262,7 @@ macro_rules! decl_table {
                         i.check(&self.__v9__iter)
                     }
                     pub fn clone_row(&self, i: impl Check<'a, M=Marker>) -> Row {
-                        let i = self.check(i);
-                        Row {
-                            $($cn: self.$cn[i].clone(),)*
-                        }
+                        self.ref_row(i).to_owned()
                     }
                     pub fn ref_row(&self, i: impl Check<'a, M=Marker>) -> RowRef {
                         let i = self.check(i);
@@ -410,6 +407,14 @@ macro_rules! decl_table {
                 #[derive(Debug, Clone)]
                 pub struct RowRef<'a> {
                     $(pub $cn: &'a $cty,)*
+                }
+                impl<'a> RowRef<'a> {
+                    #[inline]
+                    pub fn to_owned(&self) -> Row {
+                        Row {
+                            $($cn: self.$cn.clone(),)*
+                        }
+                    }
                 }
 
                 /// The type of the element of a column.
