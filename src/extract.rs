@@ -13,14 +13,19 @@ pub enum Access {
 /// Unfortunately the lifetime requirements of this trait can't be expressed in Rust at this
 /// time. It is quite simple however; the following sort of pattern needs to be valid:
 /// ```no_compile
-/// let mut owned: Self::Owned = Self::extract(&mut resources);
+/// universe.acquire_locks(&mut resources);
+/// let mut owned: Self::Owned = Self::extract(universe, &mut resources);
 /// // (any other Extraction instance…)
 /// {
-///     let converted: Self = Self::convert(&mut owned);
+///     let converted: Self = Self::convert(universe, &mut owned);
 ///     // (…)
 ///     kernel_call(converted, …);
 /// }
-/// Self::finish(universe, owned);
+///
+/// let cleaner = Self::Cleanup::pre_cleanup(owned, universe);
+/// // (…)
+/// universe.release_locks(&mut resources);
+/// cleaner.post_cleanup(universe);
 /// // (…)
 /// ```
 // I've put crazy amounts of time into trying to get this working w/o unsafe.
@@ -34,7 +39,7 @@ pub unsafe trait Extract: Sized {
     type Owned;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned;
     unsafe fn convert(universe: &Universe, owned: *mut Self::Owned) -> Self;
-    /// Default is `()`.
+    /// Default is `()`, which does nothing.
     type Cleanup: Cleaner<Self>;
 }
 // FIXME: It'd be nice to have impls of Extract for tuples; up to, say, 5.
@@ -75,32 +80,33 @@ where
 /// Produces the objects asked for by `Extract`.
 #[derive(Debug)]
 pub struct Rez {
+    // FIXME: We don't actually need 'static on this, right?
     vals: &'static [(*mut dyn Obj, Access)],
 }
 impl Rez {
     pub(crate) fn new(vals: &'static [(*mut dyn Obj, Access)]) -> Self {
         Rez { vals }
     }
-    pub unsafe fn take_ref<'a>(&mut self) -> &'a dyn Obj {
+    pub unsafe fn take_ref<'b>(&mut self) -> &'b dyn Obj {
         let (v, a): (*mut dyn Obj, Access) = self.vals[0];
         assert_eq!(a, Access::Read, "asked for Access::Write but used take_ref");
         self.vals = &self.vals[1..];
         &mut *v
     }
-    pub unsafe fn take_mut<'a>(&mut self) -> &'a mut dyn Obj {
+    pub unsafe fn take_mut<'b>(&mut self) -> &'b mut dyn Obj {
         let (v, a): (*mut dyn Obj, Access) = self.vals[0];
         assert_eq!(a, Access::Write, "asked for Access::Read but used take_mut");
         self.vals = &self.vals[1..];
         &mut *v
     }
-    pub unsafe fn take_ref_downcast<'a, T: Obj>(&mut self) -> &'a T {
+    pub unsafe fn take_ref_downcast<'b, T: Obj>(&mut self) -> &'b T {
         let got: &Obj = self.take_ref();
         got.downcast_ref().unwrap()
     }
-    pub unsafe fn take_mut_downcast<'a, T: Obj>(&mut self) -> &'a mut T {
+    pub unsafe fn take_mut_downcast<'b, T: Obj>(&mut self) -> &'b mut T {
         let got: &mut Obj = self.take_mut();
         got.downcast_mut().unwrap()
     }
     // FIXME: Explain why we use the 'static lie.
-    // FIXME: Couldn't these methods be made safe if we stuck an 'a on Rez?
+    // FIXME: Couldn't these methods be made safe if we stuck an 'b on Rez?
 }

@@ -87,7 +87,7 @@ impl Universe {
                 // 3. Edit
                 // col[i] = new;
                 // index[(old, i)] -> index[(new, i)]
-                let col = ReadColumn { col: ev.col(), no_send: PhantomData };
+                let col = ReadColumn { col: ev.col() };
                 for &(id, new) in &ev.new {
                     let old = col[id];
                     // if old == new { continue; }
@@ -128,7 +128,9 @@ impl Universe {
     pub fn add_tracker_with_ref_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
     where
         F: KernelFn<Dump, ()>,
+        F: 'static + Send + Sync,
         E: Obj,
+        Dump: Send + Sync,
     {
         let mut kernel = Kernel::new(f);
         self.add_tracker(owner, move |universe: &Universe, ev: &mut E| {
@@ -139,7 +141,9 @@ impl Universe {
     pub fn add_tracker_with_mut_arg<F, Dump, E>(&mut self, owner: TypeId, f: F)
     where
         F: KernelFn<Dump, ()>,
+        F: 'static + Send + Sync,
         E: Obj,
+        Dump: Send + Sync,
     {
         let mut kernel = Kernel::new(f);
         self.add_tracker(owner, move |universe: &Universe, ev: &mut E| {
@@ -193,7 +197,7 @@ impl<FM: TableMarker> Id<FM> {
         let mut is_tracked: Option<bool> = None;
         universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
             TypeId::of::<LM>(),
-            move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: *const Universe| {
+            move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: UniverseRef| {
                 // 8. Push the local ids of the foreign ids; we have them indexed.
                 let foreign: &RunList<FM> = if let Some(f) = ev.selection.get() { f } else { return; };
                 let mut got = vec![];
@@ -211,8 +215,7 @@ impl<FM: TableMarker> Id<FM> {
                     out.push(i);
                 }
                 ev.selection.deliver(out);
-                unsafe {
-                    let universe: &Universe = &*universe;
+                {
                     if is_tracked.is_none() {
                         is_tracked = Some(universe.is_tracked::<Select<LM>>());
                     }
@@ -265,7 +268,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
         let mut is_tracked: Option<bool> = None;
         universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
             TypeId::of::<LM>(),
-            move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: *const Universe| {
+            move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: UniverseRef| {
                 // 8. Push the local ids of the foreign ids; we have them indexed.
                 let foreign: &RunList<FM> = if let Some(f) = ev.selection.get() { f } else { return; };
                 let mut got = vec![];
@@ -300,8 +303,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
                     out.push(i);
                 }
                 ev.selection.deliver(out);
-                unsafe {
-                    let universe: &Universe = &*universe;
+                {
                     if is_tracked.is_none() {
                         is_tracked = Some(universe.is_tracked::<Select<LM>>());
                     }

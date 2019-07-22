@@ -3,6 +3,7 @@
 use crate::prelude_lib::*;
 use self::panic::AssertUnwindSafe;
 use std::collections::HashSet;
+use std::cell::RefCell;
 
 impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
@@ -13,63 +14,93 @@ impl Universe {
         self.run_and_return_into(kernel, (&mut ret) as &mut StdAny);
         ret.expect("return value not set")
     }
+    pub unsafe fn prepare_buffer(&self, buffer: &mut LockBuffer) {
+        'again: loop {
+            let mut objects = self.objects.write().unwrap();
+            let locks = &mut buffer.locks;
+            let vals = &mut buffer.vals;
+            let resources = &buffer.resources;
+            locks.clear();
+            // `vals.clear()` goes below so that it can be used to pass in additional arguments.
+            for (argn, &(ty, acc)) in resources.iter().enumerate() {
+                let lock = objects
+                    .get_mut(&ty)
+                    .unwrap_or_else(|| panic!("kernel argument component {} (of {}) has unknown type {:?}", argn, resources.iter().count(), ty));
+                if !lock.can(acc) {
+                    continue 'again;
+                }
+                locks.push((lock.deref_mut() as *mut Locked, acc));
+            }
+            for &mut (lock, acc) in locks {
+                let lock: &mut Locked = &mut *lock;
+                lock.acquire(acc);
+                let obj: *mut dyn Obj = lock.contents();
+                let obj: &mut dyn Obj = &mut *obj;
+                let obj: *mut dyn Obj = obj;
+                vals.push((obj, acc));
+            }
+            break;
+        }
+    }
+    pub unsafe fn execute_from_buffer<F>(&self, buffer: &mut LockBuffer, func: F, return_value: &mut StdAny)
+    where
+        F: FnOnce(&Universe, Rez, &mut StdAny, &mut dyn FnMut()),
+    {
+        let rez = Rez::new(mem::transmute(&buffer.vals[..]));
+        let resources = &buffer.resources;
+        let unwind = panic::catch_unwind(AssertUnwindSafe(move || {
+            func(self, rez, return_value, &mut move || {
+                // The cleanup closure.
+                // See comment in 'fn run' KernelFn impl.
+                let mut objects = self.objects.write().expect("unable to release locks");
+                for &(ty, acc) in resources {
+                    let lock = objects.get_mut(&ty).expect("lost locked object");
+                    lock.release(acc);
+                }
+            });
+        }));
+        buffer.vals.clear();
+        unwind.unwrap_or_else(|e| panic::resume_unwind(e));
+    }
     pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut StdAny) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
-            {
-                'again: loop {
-                    let mut objects = self.objects.write().unwrap();
-                    let locks = &mut kernel.locks;
-                    let vals = &mut kernel.vals;
-                    let resources = &kernel.resources;
-                    locks.clear();
-                    // `vals.clear()` goes below so that it can be used to pass in additional arguments.
-                    for (argn, &(ty, acc)) in resources.iter().enumerate() {
-                        let lock = objects
-                            .get_mut(&ty)
-                            .unwrap_or_else(|| panic!("kernel argument component {} (of {}) has unknown type {:?}", argn, resources.iter().count(), ty));
-                        if !lock.can(acc) {
-                            continue 'again;
-                        }
-                        locks.push((lock.deref_mut() as *mut Locked, acc));
-                    }
-                    for &mut (lock, acc) in locks {
-                        let lock: &mut Locked = &mut *lock;
-                        lock.acquire(acc);
-                        let obj: *mut dyn Obj = lock.contents();
-                        let obj: &mut dyn Obj = &mut *obj;
-                        let obj: *mut dyn Obj = obj;
-                        vals.push((obj, acc));
-                    }
-                    break;
-                }
-            }
-            let ret = {
-                let rez = Rez::new(mem::transmute(&kernel.vals[..]));
-                let run = &mut kernel.run;
-                let resources = &kernel.resources;
-                panic::catch_unwind(AssertUnwindSafe(move || {
-                    run(self, rez, return_value as &mut StdAny, &mut move || {
-                        // The cleanup closure.
-                        // See comment in 'fn run' KernelFn impl.
-                        let mut objects = self.objects.write().expect("unable to release locks");
-                        for &(ty, acc) in resources {
-                            let lock = objects.get_mut(&ty).expect("lost locked object");
-                            lock.release(acc);
-                        }
-                    });
-                }))
+            self.prepare_buffer(&mut kernel.buffer);
+            self.execute_from_buffer(&mut kernel.buffer, &mut kernel.run, return_value);
+        }
+    }
+    pub fn eval<K, Dump, Ret>(&self, mut k: K) -> Ret
+    where
+        K: KernelFn<Dump, Ret>,
+    {
+        unsafe {
+            let mut buffer = LockBuffer::new::<Dump, Ret, K>();
+            let ret = &RefCell::new(Option::<Ret>::None);
+            let run = move |universe: &Universe, rez: Rez, _ret: &mut StdAny, cleanup: &mut dyn FnMut()| {
+                *ret.borrow_mut() = Some(k.run(universe, rez, cleanup));
             };
-            kernel.vals.clear();
-            ret.unwrap_or_else(|e| panic::resume_unwind(e));
+            self.execute_from_buffer(&mut buffer, run, &mut ());
+            let mut ret = ret.borrow_mut();
+            ret.take().expect("return value not set")
         }
     }
 
     /// Quick & dirty `Kernel` `run`ner. This is provided to simplify tests.
-    pub fn kmap<Dump, K: KernelFn<Dump, ()>>(&self, k: K) {
+    pub fn kmap<Dump, K>(&self, k: K)
+    where
+        K: KernelFn<Dump, ()>,
+        K: 'static + Send + Sync,
+        Dump: Send + Sync,
+    {
         self.kmap_return::<(), _, _>(k)
     }
-    pub fn kmap_return<Ret: StdAny, Dump, K: KernelFn<Dump, Ret>>(&self, k: K) -> Ret {
+    pub fn kmap_return<Ret, Dump, K>(&self, k: K) -> Ret
+    where
+        Ret: StdAny,
+        K: KernelFn<Dump, Ret>,
+        K: 'static + Send + Sync,
+        Dump: Send + Sync,
+    {
         self.run_return::<Ret>(&mut Kernel::new(k))
     }
 }
@@ -84,7 +115,7 @@ impl Universe {
 ///    however:
 ///    - `kmap` requires the return value be `()`.
 ///    - `kmap_return` and `run_return` requires `Any`, which means it must be `'static`.
-pub unsafe trait KernelFn<Dump, Ret>: 'static + Send + Sync {
+pub unsafe trait KernelFn<Dump, Ret> {
     // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
     // FIXME: What if we passed in `&mut Any=Option<R>`?
     fn each_resource(f: &mut dyn FnMut(TypeId, Access));
@@ -94,18 +125,19 @@ pub unsafe trait KernelFn<Dump, Ret>: 'static + Send + Sync {
 
 /// Works like a `Box<KernelFn>`.
 pub struct Kernel {
+    run: Box<dyn FnMut(&Universe, Rez, &mut StdAny, &mut dyn FnMut()) + 'static + Send + Sync>,
+    buffer: LockBuffer,
+}
+pub struct LockBuffer {
     resources: Vec<(TypeId, Access)>,
-    run: Box<dyn FnMut(&Universe, Rez, &mut StdAny, &mut dyn FnMut()) + Send + Sync>,
     locks: Vec<(*mut Locked, Access)>,
     vals: Vec<(*mut dyn Obj, Access)>,
 }
-// This seems janky, but I think it's barely sound?
-// locks, vals: Only modified through a &mut reference.
-// run: Well, I've put Send+Sync bounds on everything.
-unsafe impl Send for Kernel {}
-unsafe impl Sync for Kernel {}
-impl Kernel {
-    pub fn new<Dump, Ret: StdAny, K: KernelFn<Dump, Ret>>(mut k: K) -> Self {
+impl LockBuffer {
+    pub fn new<Dump, Ret, K>() -> Self
+    where
+        K: KernelFn<Dump, Ret>,
+    {
         let mut resources = vec![];
         let mut write = HashSet::new();
         let mut any = HashSet::new();
@@ -128,14 +160,36 @@ impl Kernel {
         });
         let locks = Vec::with_capacity(resources.len());
         let vals = Vec::with_capacity(resources.len());
+        LockBuffer { resources, locks, vals }
+    }
+    pub fn new_for<Dump, Ret, K>(_func: &K) -> Self
+    where
+        K: KernelFn<Dump, Ret>,
+        K: 'static + Send + Sync,
+    {
+        Self::new::<Dump, Ret, K>()
+    }
+}
+// This seems janky, but I think it's barely sound?
+// locks, vals: Only modified through a &mut reference.
+// run: Well, I've put Send+Sync bounds on everything.
+unsafe impl Send for LockBuffer {}
+unsafe impl Sync for LockBuffer {}
+impl Kernel {
+    pub fn new<Dump, Ret, K>(mut k: K) -> Self
+    where
+        Ret: StdAny,
+        K: KernelFn<Dump, Ret>,
+        K: 'static + Send + Sync,
+        Dump: Send + Sync,
+    {
         Kernel {
-            resources,
+            // Strange that we must duplicate this...
             run: Box::new(move |universe, rez, ret, cleanup| unsafe {
                 let ret: &mut Option<Ret> = ret.downcast_mut().expect("return type mismatch");
                 *ret = Some(k.run(universe, rez, cleanup));
             }),
-            locks,
-            vals,
+            buffer: LockBuffer::new::<Dump, Ret, K>(),
         }
     }
     /// A kernel may have arguments that the `Universe` doesn't know about.
@@ -143,14 +197,14 @@ impl Kernel {
     /// and must be pushed in the correct order.
     pub fn push_arg(&mut self, obj: &dyn Obj) {
         let obj = obj as *const dyn Obj as *mut dyn Obj;
-        self.vals.push((obj, Access::Read));
+        self.buffer.vals.push((obj, Access::Read));
     }
     pub fn push_arg_mut(&mut self, obj: &mut dyn Obj) {
         let obj = obj as *mut dyn Obj;
-        self.vals.push((obj, Access::Write));
+        self.buffer.vals.push((obj, Access::Write));
     }
     pub fn clear_args(&mut self) {
-        self.vals.clear();
+        self.buffer.vals.clear();
     }
 }
 
@@ -198,7 +252,6 @@ macro_rules! impl_kernel {
         #[allow(non_snake_case)]
         unsafe impl<$($A,)* Ret, X> KernelFn<($($A,)*), Ret> for X
         where
-            X: 'static + Send + Sync,
             X: FnMut($($A),*) -> Ret,
             $($A: Extract,)*
         {

@@ -4,8 +4,6 @@ use crate::event::*;
 use crate::prelude_lib::*;
 use std::hint::unreachable_unchecked;
 
-pub type NoSend = PhantomData<*mut ()>;
-
 #[derive(Debug)]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
@@ -36,7 +34,6 @@ impl<M: TableMarker, T> Column<M, T> {
 
 pub struct ReadColumn<'a, M: TableMarker, T> {
     pub col: &'a Column<M, T>,
-    pub no_send: NoSend,
 }
 /// You can change the values in this column, but not the length.
 /// Changes may be logged. Because of this, you must access items in increasing order.
@@ -50,11 +47,9 @@ where
     pub col: &'a mut Column<M, T>,
     must_log: bool,
     log: &'a mut Vec<(Id<M>, T)>,
-    // FIXME: pub no_send: NoSend,
 }
 pub struct WriteColumn<'a, M: TableMarker, T> {
     pub col: MutButRef<'a, Column<M, T>>,
-    pub no_send: NoSend,
 }
 
 #[cold]
@@ -139,7 +134,7 @@ where
 
 impl<'a, M: TableMarker, T> WriteColumn<'a, M, T> {
     pub fn borrow(&self) -> ReadColumn<M, T> {
-        ReadColumn { no_send: PhantomData, col: &*self.col }
+        ReadColumn { col: &*self.col }
     }
 }
 
@@ -153,7 +148,6 @@ where
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
         let obj: &'static dyn Obj = rez.take_ref();
         ReadColumn {
-            no_send: PhantomData,
             col: obj.downcast_ref().unwrap(),
         }
     }
@@ -256,7 +250,6 @@ where
         let owned: &mut Column<M, T> = &mut *((*owned).col);
         WriteColumn {
             col: MutButRef::new(owned),
-            no_send: PhantomData,
         }
     }
     type Cleanup = WriteColCleanup<M, T>;

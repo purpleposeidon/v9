@@ -353,12 +353,36 @@ pub trait Register {
 }
 
 impl Obj for Universe {}
-unsafe impl Extract for *const Universe {
+
+/// Using this could wreck havoc on schedulers, if you use them.
+// Which is why we don't just impl Extract for &Universe.
+#[repr(transparent)]
+pub struct UniverseRef<'a> {
+    universe: &'a Universe,
+}
+unsafe impl<'a> Send for UniverseRef<'a> {}
+unsafe impl<'a> Sync for UniverseRef<'a> {}
+impl<'a> Deref for UniverseRef<'a> {
+    type Target = Universe;
+    fn deref(&self) -> &Universe { self.universe }
+}
+impl Obj for UniverseRef<'static> {}
+unsafe impl<'a> Extract for UniverseRef<'a> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = ();
     unsafe fn extract(_universe: &Universe, _rez: &mut Rez) -> Self::Owned {}
     unsafe fn convert(universe: &Universe, _owned: *mut Self::Owned) -> Self {
-        universe
+        UniverseRef {
+            universe: /*unsafe*/ {
+                // This is safe because the only way to construct a UniverseRef is via our kernel
+                // stuff. The contract of Extract says that universe outlives Self.
+                // So you can only get this in to an argument to a closure.
+                // And Rust won't let you send stuff from closure arguments to outside the closure?
+                // Phew!
+                // (See tests/mut_kerne.rs, fn static_stuff_shouldnt_compile)
+                &*(universe as *const _)
+            },
+        }
     }
     type Cleanup = ();
 }
