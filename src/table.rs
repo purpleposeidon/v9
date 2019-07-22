@@ -330,6 +330,7 @@ macro_rules! decl_table {
                         }
                     }
                     pub fn remove(&mut self, i: impl Into<Id>) {
+                        // FIXME: This probably needs more testing.
                         self.__v9__iter.deleting.get_mut().push(i.into());
                     }
                     pub fn iter_all(&self) -> IdRange<Id> {
@@ -338,6 +339,13 @@ macro_rules! decl_table {
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         self.__v9__iter.iter()
+                    }
+                    pub fn clear(&mut self) {
+                        // FIXME: Crap impl
+                        let to_delete = self.iter().map(|i| i.uncheck()).collect::<Vec<_>>();
+                        for id in to_delete {
+                            self.remove(id);
+                        }
                     }
                 }
             }
