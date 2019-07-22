@@ -69,9 +69,9 @@ impl Universe {
             self.execute_from_buffer(&mut kernel.buffer, &mut kernel.run, return_value);
         }
     }
-    pub fn eval<K, Dump, Ret>(&self, mut k: K) -> Ret
+    pub fn eval<Dump, Ret, K>(&self, k: K) -> Ret
     where
-        K: KernelFn<Dump, Ret>,
+        K: KernelFnOnce<Dump, Ret>,
     {
         // FIXME: There's some efficiency that could be squeezed outta this.
         // We could store a 'trusted kernel type', and skip the validation.
@@ -118,12 +118,18 @@ impl Universe {
 ///    however:
 ///    - `kmap` requires the return value be `()`.
 ///    - `kmap_return` and `run_return` requires `Any`, which means it must be `'static`.
-pub unsafe trait KernelFn<Dump, Ret> {
+pub unsafe trait KernelFn<Dump, Ret>: EachResource<Dump, Ret> {
+    unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
+}
+
+pub unsafe trait KernelFnOnce<Dump, Ret>: EachResource<Dump, Ret> {
+    unsafe fn run(self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
+}
+
+pub unsafe trait EachResource<Dump, Ret> {
     // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
     // FIXME: What if we passed in `&mut Any=Option<R>`?
     fn each_resource(f: &mut dyn FnMut(TypeId, Access));
-
-    unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
 }
 
 /// Works like a `Box<KernelFn>`.
@@ -139,7 +145,7 @@ pub struct LockBuffer {
 impl LockBuffer {
     pub fn new<Dump, Ret, K>() -> Self
     where
-        K: KernelFn<Dump, Ret>,
+        K: EachResource<Dump, Ret>,
     {
         let mut resources = vec![];
         let mut write = HashSet::new();
@@ -252,10 +258,9 @@ impl<T> DerefMut for KernelArg<T> {
 
 macro_rules! impl_kernel {
     ($($A:ident),*) => {
-        #[allow(non_snake_case)]
-        unsafe impl<$($A,)* Ret, X> KernelFn<($($A,)*), Ret> for X
+        unsafe impl<$($A,)* Ret, X> EachResource<($($A,)*), Ret> for X
         where
-            X: FnMut($($A),*) -> Ret,
+            X: FnOnce($($A),*) -> Ret,
             $($A: Extract,)*
         {
             fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
@@ -263,7 +268,32 @@ macro_rules! impl_kernel {
                     $A::each_resource(f);
                 )*
             }
+        }
+        #[allow(non_snake_case)]
+        unsafe impl<$($A,)* Ret, X> KernelFn<($($A,)*), Ret> for X
+        where
+            X: FnMut($($A),*) -> Ret,
+            $($A: Extract,)*
+        {
             unsafe fn run(&mut self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
+                $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
+                let ret = {
+                    $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
+                    self($($A),*)
+                };
+                $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, universe);)*
+                cleanup(); // Releases the locks.
+                $($A.post_cleanup(universe);)*
+                ret
+            }
+        }
+        #[allow(non_snake_case)]
+        unsafe impl<$($A,)* Ret, X> KernelFnOnce<($($A,)*), Ret> for X
+        where
+            X: FnOnce($($A),*) -> Ret,
+            $($A: Extract,)*
+        {
+            unsafe fn run(self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
                 $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
                 let ret = {
                     $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
