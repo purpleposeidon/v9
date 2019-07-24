@@ -7,6 +7,7 @@ use std::fmt;
 use std::ops::{Range, RangeInclusive};
 use std::iter::Peekable;
 use std::hash;
+use std::cmp::Ordering;
 
 type Run<M> = (Id<M>, Id<M>);
 
@@ -214,6 +215,7 @@ impl<M: TableMarker> From<usize> for Id<M> {
     }
 }
 
+/// This is an exclusive range, just like `std::ops::Range`.
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(bound = "I: serde::Serialize + serde::de::DeserializeOwned")]
@@ -438,6 +440,50 @@ impl<M: TableMarker> IdList<M> {
             self.len += 1;
             Err(Id::from_usize(i))
         }
+    }
+    /// Note: This method is `O(self.free.data.len())`
+    pub unsafe fn recycle_id_contiguous(&mut self, n: usize) -> Result<UncheckedIdRange<M>, UncheckedIdRange<M>> {
+        if n == 0 {
+            return Err(UncheckedIdRange::empty());
+        }
+        if n == 1 {
+            // Special handling required because a (b, a) case would be skipped.
+            let id = self.recycle_id();
+            return id.map(UncheckedIdRange::on).map_err(UncheckedIdRange::on);
+        }
+        let mut remove = None;
+        let mut ret = None;
+        for (i, (a, b)) in self.free.data.iter_mut().enumerate().rev(/* remove from end */) {
+            // FIXME: This isn't a very good algorithm, especially if you want to push more than
+            // one range. Rather than doing weird heuristicy stuff, we should change the API to
+            // take a Vec of ranges, sort by large-to-small, and get it done in O(n).
+            // But for now, let's just hope you don't actually end up here!
+            if a >= b { continue; }
+            let d = b.to_usize() - a.to_usize();
+            match d.cmp(&n) {
+                Ordering::Less => continue,
+                Ordering::Equal => {
+                    remove = Some(i);
+                    ret = Some(IdRange::new(*a, *b));
+                    break;
+                },
+                Ordering::Greater => {
+                    let a2 = Id::from_usize(a.to_usize() + n);
+                    ret = Some(IdRange::new(*a, a2));
+                    *a = a2;
+                },
+            }
+        }
+        if let Some(i) = remove {
+            self.free.data.remove(i);
+        }
+        if let Some(ret) = ret {
+            return Ok(ret);
+        }
+        let a = self.len;
+        self.len += n;
+        let b = self.len;
+        Err(IdRange::new(Id::from_usize(a), Id::from_usize(b)))
     }
     /// The next Id that will be used for the next call to push. Be aware that calling this
     /// multiple times will return the same ID.

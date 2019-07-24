@@ -304,6 +304,9 @@ macro_rules! decl_table {
                     pub fn ids(&self) -> &Ids {
                         self.__v9__iter
                     }
+                    pub fn ids_mut(&mut self) -> &mut Ids {
+                        self.__v9__iter
+                    }
                     pub fn reserve(&mut self, n: usize) {
                         unsafe {
                             $(self.$cn.col.get_mut().data_mut().reserve(n);)*
@@ -313,15 +316,52 @@ macro_rules! decl_table {
                         unsafe {
                             match self.__v9__iter.recycle_id() {
                                 Ok(id) => {
-                                    let i = id.to_usize();
-                                    $(
-                                        *self.$cn.col.get_mut().data_mut().get_unchecked_mut(i) = row.$cn;
-                                    )*
+                                    self.set_immediate(id.to_usize(), row);
                                     id
                                 },
                                 Err(id) => {
-                                    $(self.$cn.col.get_mut().data_mut().push(row.$cn);)*
+                                    self.push_immediate(row);
                                     id
+                                },
+                            }
+                        }
+                    }
+                    pub unsafe fn push_immediate(&mut self, row: Row) {
+                        $(self.$cn.col.get_mut().data_mut().push(row.$cn);)*
+                    }
+                    pub unsafe fn set_immediate(&mut self, i: usize, row: Row) {
+                        $(
+                            *self.$cn.col.get_mut().data_mut().get_unchecked_mut(i) = row.$cn;
+                        )*
+                    }
+                    pub fn push_contiguous(&mut self, rows: impl IntoIterator<Item=Row>) -> Range {
+                        use $crate::util::die::bad_iter_len;
+                        let rows = rows.into_iter();
+                        let n = {
+                            let (min, max) = rows.size_hint();
+                            if Some(min) != max {
+                                bad_iter_len();
+                            }
+                            min
+                        };
+                        unsafe {
+                            match self.ids_mut().recycle_id_contiguous(n) {
+                                Ok(range) => {
+                                    let mut id_iter = range.iter();
+                                    for row in rows {
+                                        let id = id_iter.next().expect($crate::util::die::BAD_ITER_LEN);
+                                        self.set_immediate(id.to_usize(), row);
+                                    }
+                                    if id_iter.next().is_some() {
+                                        bad_iter_len();
+                                    }
+                                    range
+                                },
+                                Err(range) => {
+                                    for row in rows {
+                                        self.push_immediate(row);
+                                    }
+                                    range
                                 },
                             }
                         }
