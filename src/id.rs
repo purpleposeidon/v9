@@ -154,6 +154,7 @@ pub unsafe trait Check: Copy + Ord + fmt::Debug {
     }
     unsafe fn step(self, d: i8) -> Self;
     fn to_usize(&self) -> usize;
+    unsafe fn from_usize(i: usize) -> Self;
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId;
 }
 unsafe impl<'a, M: TableMarker> Check for CheckedId<'a, M> {
@@ -161,6 +162,13 @@ unsafe impl<'a, M: TableMarker> Check for CheckedId<'a, M> {
     #[inline]
     fn to_usize(&self) -> usize {
         self.id.to_usize()
+    }
+    #[inline]
+    unsafe fn from_usize(i: usize) -> Self {
+        CheckedId {
+            table: PhantomData,
+            id: Id::from_usize(i),
+        }
     }
     #[inline]
     unsafe fn step(self, d: i8) -> Self {
@@ -195,6 +203,10 @@ unsafe impl<'a, M: TableMarker> Check for Id<M> {
     #[inline]
     fn to_usize(&self) -> usize {
         self.0.to_usize()
+    }
+    #[inline]
+    unsafe fn from_usize(i: usize) -> Self {
+        Id::from_usize(i)
     }
     #[inline]
     unsafe fn step(self, d: i8) -> Self {
@@ -260,6 +272,15 @@ impl<'a, I: Check> IdRange<'a, I> {
         let start = self.start.to_raw().to_usize();
         let end = self.end.to_raw().to_usize();
         end - start
+    }
+    pub fn offset(&self, i: usize) -> Option<I> {
+        unsafe {
+            if i >= self.len() {
+                None
+            } else {
+                Some(I::from_usize(self.start.to_usize() + i))
+            }
+        }
     }
 }
 impl<M: TableMarker> IdRange<'static, Id<M>> {
@@ -609,6 +630,7 @@ unsafe impl<'a, M: TableMarker> Check for RmId<'a, M> {
     fn to_usize(&self) -> usize {
         self.id.to_usize()
     }
+    unsafe fn from_usize(_i: usize) -> Self { unimplemented!() }
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.id.0 }
     unsafe fn step(self, d: i8) -> Self {
         RmId {

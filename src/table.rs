@@ -308,6 +308,7 @@ macro_rules! decl_table {
                         self.__v9__iter
                     }
                     pub fn reserve(&mut self, n: usize) {
+                        // FIXME: Consider the free list.
                         unsafe {
                             $(self.$cn.col.get_mut().data_mut().reserve(n);)*
                         }
