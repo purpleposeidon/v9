@@ -56,7 +56,7 @@ pub struct WriteColumn<'a, M: TableMarker, T> {
 fn disordered_column_access() -> ! { panic!("disordered column access") }
 impl<'a, 'b, I, M: TableMarker, T> Index<I> for ReadColumn<'a, M, T>
 where
-    I: Check<'b, M = M>,
+    I: 'b + Check<M = M>,
 {
     type Output = T;
     fn index(&self, i: I) -> &T {
@@ -69,7 +69,7 @@ where
 impl<'a, 'b, I, M: TableMarker, T> Index<I> for EditColumn<'a, M, T>
 where
     T: Clone,
-    I: Check<'b, M = M>,
+    I: 'b + Check<M = M>,
 {
     type Output = T;
     fn index(&self, i: I) -> &T {
@@ -90,7 +90,7 @@ where
 impl<'a, 'b, I, M: TableMarker, T> IndexMut<I> for EditColumn<'a, M, T>
 where
     T: Clone,
-    I: Check<'b, M = M>,
+    I: 'b + Check<M = M>,
 {
     fn index_mut(&mut self, i: I) -> &mut T {
         unsafe {
@@ -120,7 +120,7 @@ where
 }
 impl<'a, 'b, M: TableMarker, T, I> Index<I> for WriteColumn<'a, M, T>
 where
-    I: Check<'b, M = M>,
+    I: 'b + Check<M = M>,
 {
     type Output = T;
     fn index(&self, i: I) -> &T {

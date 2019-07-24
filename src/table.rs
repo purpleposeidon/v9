@@ -258,20 +258,20 @@ macro_rules! decl_table {
                 }
 
                 impl<'a> Read<'a> {
-                    pub fn check(&self, i: impl Check<'a, M=Marker>) -> CheckedId<'a> {
-                        i.check(&self.__v9__iter)
+                    pub fn len(&self) -> usize {
+                        self.__v9__iter.len()
                     }
-                    pub fn clone_row(&self, i: impl Check<'a, M=Marker>) -> Row {
+                    pub fn ids(&self) -> &Ids {
+                        self.__v9__iter
+                    }
+                    pub fn clone_row(&self, i: impl 'a + Check<M=Marker>) -> Row {
                         self.ref_row(i).to_owned()
                     }
-                    pub fn ref_row(&self, i: impl Check<'a, M=Marker>) -> RowRef {
-                        let i = self.check(i);
+                    pub fn ref_row(&self, i: impl 'a + Check<M=Marker>) -> RowRef {
+                        let i = self.ids().check(i);
                         RowRef {
                             $($cn: &self.$cn[i],)*
                         }
-                    }
-                    pub fn len(&self) -> usize {
-                        self.__v9__iter.len()
                     }
                     pub fn iter_all(&self) -> UncheckedIdRange<Marker> {
                         let end = self.len();
@@ -284,6 +284,9 @@ macro_rules! decl_table {
                 impl<'a> Edit<'a> {
                     pub fn len(&self) -> usize {
                         self.__v9__iter.len()
+                    }
+                    pub fn ids(&self) -> &Ids {
+                        self.__v9__iter
                     }
                     pub fn iter_all(&self) -> IdRange<Id> {
                         let end = self.len();
@@ -298,13 +301,13 @@ macro_rules! decl_table {
                     pub fn len(&self) -> usize {
                         self.__v9__iter.len()
                     }
+                    pub fn ids(&self) -> &Ids {
+                        self.__v9__iter
+                    }
                     pub fn reserve(&mut self, n: usize) {
                         unsafe {
                             $(self.$cn.col.get_mut().data_mut().reserve(n);)*
                         }
-                    }
-                    pub fn next_id(&self) -> Id {
-                        self.__v9__iter.next_id()
                     }
                     pub fn push(&mut self, row: Row) -> Id {
                         unsafe {

@@ -131,18 +131,10 @@ impl<'a, M: TableMarker> fmt::Debug for CheckedId<'a, M> {
         write!(f, "{}[{:?}]", M::NAME, self.id.0)
     }
 }
-pub unsafe trait Check<'a>: Copy + Ord + fmt::Debug {
+pub unsafe trait Check: Copy + Ord + fmt::Debug {
     type M: TableMarker;
-    fn check(&self, id_list: &'a IdList<Self::M>) -> CheckedId<'a, Self::M> {
-        unsafe {
-            self.check_from_len(
-                PhantomData::<&'a Self::M>,
-                id_list.len,
-            )
-        }
-    }
-    unsafe fn check_from_len(
-        &self,
+    unsafe fn check_from_len<'a>(
+        self,
         table: PhantomData<&'a Self::M>,
         max: usize,
     ) -> CheckedId<'a, Self::M> {
@@ -163,11 +155,13 @@ pub unsafe trait Check<'a>: Copy + Ord + fmt::Debug {
     fn to_usize(&self) -> usize;
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId;
 }
-unsafe impl<'a, M: TableMarker> Check<'a> for CheckedId<'a, M> {
+unsafe impl<'a, M: TableMarker> Check for CheckedId<'a, M> {
     type M = M;
+    #[inline]
     fn to_usize(&self) -> usize {
         self.id.to_usize()
     }
+    #[inline]
     unsafe fn step(self, d: i8) -> Self {
         CheckedId {
             id: self.id.step(d),
@@ -175,10 +169,12 @@ unsafe impl<'a, M: TableMarker> Check<'a> for CheckedId<'a, M> {
         }
     }
     #[cfg(release)]
-    fn check(&self, _id_list: &'a IdList<Self::M>) -> CheckedId<'a, Self::M> {
+    #[inline]
+    fn check<'b>(&self, _id_list: &'b IdList<Self::M>) -> CheckedId<'b, Self::M> {
         *self
     }
     #[cfg(release)]
+    #[inline]
     unsafe fn check_from_len(
         &self,
         _table: PhantomData<&'a Self::M>,
@@ -186,19 +182,24 @@ unsafe impl<'a, M: TableMarker> Check<'a> for CheckedId<'a, M> {
     ) -> CheckedId<'a, Self::M> {
         *self
     }
+    #[inline]
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.id.0 }
 }
-unsafe impl<'a, M: TableMarker> Check<'a> for Id<M> {
+unsafe impl<'a, M: TableMarker> Check for Id<M> {
     type M = M;
+    #[inline]
     fn uncheck(&self) -> Id<M> {
         *self
     }
+    #[inline]
     fn to_usize(&self) -> usize {
         self.0.to_usize()
     }
+    #[inline]
     unsafe fn step(self, d: i8) -> Self {
         Id(self.0.offset(d))
     }
+    #[inline]
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.0 }
 }
 impl<'a, M: TableMarker> Into<Id<M>> for CheckedId<'a, M> {
@@ -216,13 +217,13 @@ impl<M: TableMarker> From<usize> for Id<M> {
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(bound = "I: serde::Serialize + serde::de::DeserializeOwned")]
-pub struct IdRange<'a, I: Check<'a>> {
+pub struct IdRange<'a, I: Check> {
     #[serde(skip)]
     pub(crate) _a: PhantomData<&'a ()>,
     pub start: I,
     pub end: I,
 }
-impl<'a, I: Check<'a>> fmt::Debug for IdRange<'a, I> {
+impl<'a, I: Check> fmt::Debug for IdRange<'a, I> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -233,7 +234,7 @@ impl<'a, I: Check<'a>> fmt::Debug for IdRange<'a, I> {
         )
     }
 }
-impl<'a, I: Check<'a>> IdRange<'a, I> {
+impl<'a, I: Check> IdRange<'a, I> {
     pub fn step(&mut self) -> Option<I> {
         unsafe {
             if self.start >= self.end {
@@ -246,7 +247,7 @@ impl<'a, I: Check<'a>> IdRange<'a, I> {
     }
     pub fn contains<'b, O>(&self, i: O) -> bool
     where
-        O: Check<'b, M=I::M>,
+        O: 'b + Check<M=I::M>,
     {
         let start = self.start.to_raw();
         let end = self.end.to_raw();
@@ -282,11 +283,11 @@ impl<M: TableMarker> IdRange<'static, Id<M>> {
         }
     }
 }
-pub struct IdRangeIter<'a, I: Check<'a>> {
+pub struct IdRangeIter<'a, I: Check> {
     range: IdRange<'a, I>,
     _a: PhantomData<&'a ()>,
 }
-impl<'a, I: Check<'a>> IntoIterator for IdRange<'a, I> {
+impl<'a, I: Check> IntoIterator for IdRange<'a, I> {
     type Item = I;
     type IntoIter = IdRangeIter<'a, I>;
     fn into_iter(self) -> Self::IntoIter {
@@ -296,7 +297,7 @@ impl<'a, I: Check<'a>> IntoIterator for IdRange<'a, I> {
         }
     }
 }
-impl<'a, I: Check<'a>> Iterator for IdRangeIter<'a, I>
+impl<'a, I: Check> Iterator for IdRangeIter<'a, I>
 where
     I: Clone,
 {
@@ -364,6 +365,12 @@ impl<M: TableMarker> IdList<M> {
             CheckedIter::new(self.len, &self.free)
         }
     }
+    pub fn range(&self, range: UncheckedIdRange<M>) -> CheckedIter<M> {
+        unsafe {
+            assert!(range.start <= range.end);
+            CheckedIter::over(range, &self.free)
+        }
+    }
     pub fn delete(&mut self, id: Id<M>) {
         let deleting = self.deleting.get_mut();
         deleting.push(id);
@@ -407,8 +414,9 @@ impl<M: TableMarker> IdList<M> {
             deleting: &self.deleting,
         }
     }
+    /// Creates a new Id, or returns a previously deleted Id.
+    /// This function is unsafe because it does not push anything to the column's Vecs.
     pub unsafe fn recycle_id(&mut self) -> Result<Id<M>, Id<M>> {
-        // FIXME: Why unsafe?
         if let Some(id) = self.free.pop() {
             Ok(id)
         } else {
@@ -417,11 +425,22 @@ impl<M: TableMarker> IdList<M> {
             Err(Id::from_usize(i))
         }
     }
-    pub fn next_id(&self) -> Id<M> {
+    /// The next Id that will be used for the next call to push. Be aware that calling this
+    /// multiple times will return the same ID.
+    pub fn next(&self) -> Id<M> {
+        // Idea: What if there wasa  'future IDs' iterator?
         self.free.last()
             .unwrap_or_else(|| {
                 Id::from_usize(self.len)
             })
+    }
+    pub fn check<'a, 'b>(&'a self, i: impl Check<M=M> + 'b) -> CheckedId<'a, M> {
+        unsafe {
+            i.check_from_len(
+                PhantomData::<&'a M>,
+                self.len,
+            )
+        }
     }
 }
 impl<'a, M: TableMarker> IntoIterator for &'a IdList<M> {
@@ -525,7 +544,7 @@ impl<'a, M: TableMarker> RmId<'a, M> {
         self.deleting.borrow_mut().push(self.id);
     }
 }
-unsafe impl<'a, M: TableMarker> Check<'a> for RmId<'a, M> {
+unsafe impl<'a, M: TableMarker> Check for RmId<'a, M> {
     type M = M;
     fn to_usize(&self) -> usize {
         self.id.to_usize()
@@ -547,6 +566,12 @@ impl<'a, M: TableMarker> CheckedIter<'a, M> {
     pub unsafe fn new(len: usize, free: &'a RunList<M>) -> Self {
         CheckedIter {
             range: IdRange::to(Id::from_usize(len)),
+            free: free.iter().peekable(),
+        }
+    }
+    pub unsafe fn over(range: UncheckedIdRange<M>, free: &'a RunList<M>) -> Self {
+        CheckedIter {
+            range,
             free: free.iter().peekable(),
         }
     }
