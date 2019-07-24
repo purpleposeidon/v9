@@ -261,11 +261,18 @@ impl<'a, I: Check> IdRange<'a, I> {
     }
 }
 impl<M: TableMarker> IdRange<'static, Id<M>> {
-    pub fn on(start: Id<M>, end: Id<M>) -> Self {
+    pub fn new(start: Id<M>, end: Id<M>) -> Self {
         IdRange {
             _a: PhantomData,
             start,
             end,
+        }
+    }
+    pub fn on(id: Id<M>) -> Self {
+        IdRange {
+            _a: PhantomData,
+            start: id,
+            end: id.next(),
         }
     }
     pub fn to(end: Id<M>) -> Self {
@@ -280,6 +287,13 @@ impl<M: TableMarker> IdRange<'static, Id<M>> {
             _a: PhantomData,
             start: Id::from_usize(0),
             end: Id::from_usize(0),
+        }
+    }
+    /// If you want to iterate over a checked `IdRange`, use `table.ids().range()`.
+    pub fn iter(self) -> IdRangeIter<'static, Id<M>> {
+        IdRangeIter {
+            range: self,
+            _a: PhantomData,
         }
     }
 }
@@ -890,4 +904,9 @@ mod test_run_list {
     //     let got_len = check((0..20).rev());
     //     assert_eq!(got_len, 1);
     // }
+    #[test]
+    fn on_iter_is_some() {
+        let r = UncheckedIdRange::<M>::on(Id::<M>::from_usize(3));
+        assert_eq!(1, r.iter().count());
+    }
 }

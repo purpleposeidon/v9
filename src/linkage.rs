@@ -263,7 +263,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
                     let range = {
                         let ll = Id(LM::RawId::LAST);
                         let fl = Id(FM::RawId::LAST);
-                        let back = (IdRange::on(fid, fl), ll);
+                        let back = (IdRange::new(fid, fl), ll);
                         ..back
                     };
                     let mut iter = index.map.range(range);
@@ -296,7 +296,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
                     let range = {
                         let ll = Id(LM::RawId::LAST);
                         let fl = Id(FM::RawId::LAST);
-                        let back = (IdRange::on(fid, fl), ll);
+                        let back = (IdRange::new(fid, fl), ll);
                         ..back
                     };
                     let mut iter = index.map.range(range);
