@@ -221,7 +221,7 @@ macro_rules! decl_table {
             // it gets *everywhere*.
             mod in_v9 {
                 use $crate::prelude_macro::*;
-                use super::in_user::{Read, Write, Row, RowRef};
+                use super::in_user::{Read, Write, Edit, Row, RowRef};
                 /// Table's name.
                 pub const NAME: &'static str = stringify!($name);
                 /// A strongly typed index into the table.
@@ -279,6 +279,17 @@ macro_rules! decl_table {
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         self.__v9__iter.iter()
+                    }
+                }
+                impl<'a> Edit<'a> {
+                    pub fn clone_row(&self, i: impl 'a + Check<M=Marker>) -> Row {
+                        self.ref_row(i).to_owned()
+                    }
+                    pub fn ref_row(&self, i: impl 'a + Check<M=Marker>) -> RowRef {
+                        // We can't actually check.
+                        RowRef {
+                            $($cn: &self.$cn[i],)*
+                        }
                     }
                 }
                 impl<'a> Write<'a> {
