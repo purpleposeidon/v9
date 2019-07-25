@@ -379,6 +379,11 @@ impl<M: TableMarker> Drop for IdList<M> {
 }
 impl<M: TableMarker> IdList<M> {
     pub fn len(&self) -> usize { self.len }
+    pub fn exists(&self, id: Id<M>) -> bool {
+        id.to_usize() < self.len && !self.free.iter_runs().any(|run| {
+            run.contains(&id)
+        })
+    }
     pub fn flush(&mut self, universe: &Universe) {
         let ids = mem::replace(self.deleting.get_mut(), RunList::default());
         let mut deleted = Deleted { ids };
