@@ -221,7 +221,7 @@ macro_rules! decl_table {
             // it gets *everywhere*.
             mod in_v9 {
                 use $crate::prelude_macro::*;
-                use super::in_user::{Read, Write, Edit, Row, RowRef};
+                use super::in_user::{Read, Write, Row, RowRef};
                 /// Table's name.
                 pub const NAME: &'static str = stringify!($name);
                 /// A strongly typed index into the table.
@@ -278,22 +278,6 @@ macro_rules! decl_table {
                         IdRange::to(Id::from_usize(end))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
-                        self.__v9__iter.iter()
-                    }
-                }
-                impl<'a> Edit<'a> {
-                    pub fn len(&self) -> usize {
-                        self.__v9__iter.len()
-                    }
-                    pub fn ids(&self) -> &Ids {
-                        self.__v9__iter
-                    }
-                    pub fn iter_all(&self) -> IdRange<Id> {
-                        let end = self.len();
-                        IdRange::to(Id::from_usize(end))
-                    }
-                    pub fn iter(&self) -> CheckedIter<Marker> {
-                        // FIXME: This originally wasn't here. Was there a reason for that?
                         self.__v9__iter.iter()
                     }
                 }
@@ -497,14 +481,14 @@ macro_rules! decl_table {
                 pub mod edit {
                     $(pub type $cn<'a> = $crate::prelude_macro::EditColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     #[doc(hidden)]
-                    pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     $crate::decl_context! {
                         /// Modification-access to the elements of a table. This does **not** allow adding or
                         /// removing rows. Changes will be logged if necessary.
+                        /// The id list can't be stored in here, so you must ask for it separately,
+                        /// like `my_table_ids: &my_table::Ids`. If you are only editing one
+                        /// column, you might consider `_: my_table::edit::specific_column`.
                         pub struct __Edit {
                             $(pub $cn: $cn,)*
-                            #[doc(hidden)]
-                            pub(in super::super::super) __v9__iter: __V9__Iter,
                         }
                     }
                 }
