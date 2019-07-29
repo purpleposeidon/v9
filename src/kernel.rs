@@ -313,3 +313,19 @@ macro_rules! impl_kernel {
     };
 }
 impl_kernel! { A14, A13, A12, A11, A10, A09, A08, A07, A06, A05, A04, A03, A02, A01, A00 }
+unsafe impl<X, Ret> EachResource<(), Ret> for X
+where
+    X: FnMut() -> Ret,
+{
+    fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
+}
+unsafe impl<X, Ret> KernelFn<(), Ret> for X
+where
+    X: FnMut() -> Ret,
+{
+    unsafe fn run(&mut self, _universe: &Universe, _args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
+        let ret = self();
+        cleanup();
+        ret
+    }
+}
