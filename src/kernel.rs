@@ -77,6 +77,7 @@ impl Universe {
         // We could store a 'trusted kernel type', and skip the validation.
         unsafe {
             let mut buffer = LockBuffer::new::<Dump, Ret, K>();
+            self.prepare_buffer(&mut buffer);
             let ret = Cell::new(Option::<Ret>::None);
             let run = |universe: &Universe, rez: Rez, _ret: &mut StdAny, cleanup: &mut dyn FnMut()| {
                 let got = k.run(universe, rez, cleanup);
@@ -147,10 +148,13 @@ impl LockBuffer {
     where
         K: EachResource<Dump, Ret>,
     {
+        Self::new0(K::each_resource)
+    }
+    fn new0(each_resource: fn(&mut dyn FnMut(TypeId, Access))) -> Self {
         let mut resources = vec![];
         let mut write = HashSet::new();
         let mut any = HashSet::new();
-        K::each_resource(&mut |t, a| {
+        each_resource(&mut |t, a| {
             resources.push((t, a));
             match a {
                 Access::Read => {
