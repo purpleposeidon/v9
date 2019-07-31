@@ -25,7 +25,9 @@ impl Universe {
             for (argn, &(ty, acc)) in resources.iter().enumerate() {
                 let lock = objects
                     .get_mut(&ty)
-                    .unwrap_or_else(|| panic!("kernel argument component {} (of {}) has unknown type {:?}", argn, resources.iter().count(), ty));
+                    .unwrap_or_else(|| {
+                        panic!("kernel argument component {} (of {}) has unknown type {:?}", argn, resources.iter().count(), ty)
+                    });
                 if !lock.can(acc) {
                     continue 'again;
                 }

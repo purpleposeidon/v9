@@ -60,7 +60,9 @@ impl FirstColumn for HeadCol { const B: bool = true; }
 impl FirstColumn for TailCol { const B: bool = false; }
 
 #[cold]
-fn disordered_column_access() -> ! { panic!("disordered column access") }
+fn disordered_column_access() -> ! {
+    panic!("disordered column access")
+}
 impl<'a, 'b, I, M: TableMarker, T> Index<I> for ReadColumn<'a, M, T>
 where
     I: 'b + Check<M = M>,

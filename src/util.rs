@@ -50,5 +50,7 @@ impl<'a, T> Deref for MutButRef<'a, T> {
 pub mod die {
     pub static BAD_ITER_LEN: &str = "Iterator must know its exact Id length";
     #[cold]
-    pub fn bad_iter_len() -> ! { panic!("{}", BAD_ITER_LEN) }
+    pub fn bad_iter_len() -> ! {
+        panic!("{}", BAD_ITER_LEN)
+    }
 }

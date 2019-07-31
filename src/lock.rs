@@ -36,16 +36,24 @@ impl Locked {
             (LockState::Open, _) => true,
             (LockState::Read(_), Access::Read) => true,
             (LockState::Read(_), Access::Write) => false,
-            (LockState::Write(orig), _) if orig == thread_id() => panic!("thread deadlock"),
+            (LockState::Write(orig), _) if orig == thread_id() => {
+                panic!("thread deadlock")
+            },
             (LockState::Write(_), _) => false,
         }
     }
     pub fn acquire(&mut self, access: Access) {
         //println!("acquire {:?} on {:?}", access, self);
         self.state = match (self.state, access) {
-            (LockState::Write(_), Access::Read) => panic!("kernel multi-locked object via 'WR'"),
-            (LockState::Write(_), Access::Write) => panic!("kernel multi-locked object via 'WW'"),
-            (LockState::Read(_), Access::Write) => panic!("kernel multi-locked object via 'RW'"),
+            (LockState::Write(_), Access::Read) => {
+                panic!("kernel multi-locked object via 'WR'")
+            },
+            (LockState::Write(_), Access::Write) => {
+                panic!("kernel multi-locked object via 'WW'")
+            },
+            (LockState::Read(_), Access::Write) => {
+                panic!("kernel multi-locked object via 'RW'")
+            },
             (LockState::Read(n), Access::Read) => LockState::Read(n + 1), // checked_add? nah
             (LockState::Open, Access::Read) => LockState::Read(0),
             (LockState::Open, Access::Write) => LockState::Write(thread_id()),
@@ -60,7 +68,9 @@ impl Locked {
             (LockState::Write(_), Access::Write) => LockState::Open,
             (LockState::Read(0), Access::Read) => LockState::Open,
             (LockState::Read(n), Access::Read) => LockState::Read(n - 1),
-            (state, access) => panic!("Mismatched release({:?}) to {:?}", access, state),
+            (state, access) => {
+                panic!("Mismatched release({:?}) to {:?}", access, state)
+            },
         }
     }
     #[allow(clippy::borrowed_box)]
