@@ -48,9 +48,16 @@ where
     must_log: bool,
     log: &'a mut Vec<(Id<M>, T)>,
 }
-pub struct WriteColumn<'a, M: TableMarker, T> {
+pub struct WriteColumn<'a, M: TableMarker, T, F: FirstColumn> {
     pub col: MutButRef<'a, Column<M, T>>,
+    _first: F,
 }
+
+pub trait FirstColumn: Clone + Default { const B: bool; }
+#[derive(Clone, Default)] pub struct HeadCol;
+#[derive(Clone, Default)] pub struct TailCol;
+impl FirstColumn for HeadCol { const B: bool = true; }
+impl FirstColumn for TailCol { const B: bool = false; }
 
 #[cold]
 fn disordered_column_access() -> ! { panic!("disordered column access") }
@@ -118,7 +125,7 @@ where
         }
     }
 }
-impl<'a, 'b, M: TableMarker, T, I> Index<I> for WriteColumn<'a, M, T>
+impl<'a, 'b, M: TableMarker, T, F: FirstColumn, I> Index<I> for WriteColumn<'a, M, T, F>
 where
     I: 'b + Check<M = M>,
 {
@@ -132,7 +139,7 @@ where
 }
 // WriteColumn is append-only, so IndexMut is not provided.
 
-impl<'a, M: TableMarker, T> WriteColumn<'a, M, T> {
+impl<'a, M: TableMarker, T, F: FirstColumn> WriteColumn<'a, M, T, F> {
     pub fn borrow(&self) -> ReadColumn<M, T> {
         ReadColumn { col: &*self.col }
     }
@@ -227,10 +234,11 @@ where
     must_log: bool,
     old_len: usize,
 }
-unsafe impl<'a, M, T> Extract for WriteColumn<'a, M, T>
+unsafe impl<'a, M, T, F> Extract for WriteColumn<'a, M, T, F>
 where
     M: TableMarker,
     T: 'static + Send + Sync,
+    F: FirstColumn,
 {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<Column<M, T>>(), Access::Write)
@@ -250,24 +258,27 @@ where
         let owned: &mut Column<M, T> = &mut *((*owned).col);
         WriteColumn {
             col: MutButRef::new(owned),
+            _first: F::default(),
         }
     }
-    type Cleanup = WriteColCleanup<M, T>;
+    type Cleanup = WriteColCleanup<M, T, F>;
 }
 #[doc(hidden)]
-pub struct WriteColCleanup<M, T>
+pub struct WriteColCleanup<M, T, F>
 where
     M: TableMarker,
+    F: FirstColumn,
 {
-    marker: PhantomData<(M, T)>,
+    marker: PhantomData<(M, T, F)>,
     must_log: bool,
     old_len: usize,
     new_len: usize,
 }
-unsafe impl<'a, M, T> Cleaner<WriteColumn<'a, M, T>> for WriteColCleanup<M, T>
+unsafe impl<'a, M, T, F> Cleaner<WriteColumn<'a, M, T, F>> for WriteColCleanup<M, T, F>
 where
     M: TableMarker,
     T: 'static + Send + Sync,
+    F: FirstColumn,
 {
     fn pre_cleanup(owned: WriteColLog<M, T>, _universe: &Universe) -> Self {
         let new_len = unsafe { (*owned.col).len() };
@@ -279,7 +290,7 @@ where
         }
     }
     fn post_cleanup(self, universe: &Universe) {
-        if !self.must_log || self.new_len == self.old_len {
+        if !F::B || !self.must_log || self.new_len == self.old_len {
             return;
         }
         universe.submit_event(&mut Pushed::<M> {
@@ -313,7 +324,7 @@ unsafe impl<'a, M: TableMarker, T: Clone> ColumnInfo<M> for EditColumn<'a, M, T>
         self.col.data.len()
     }
 }
-unsafe impl<'a, M: TableMarker, T> ColumnInfo<M> for WriteColumn<'a, M, T> {
+unsafe impl<'a, M: TableMarker, T, F: FirstColumn> ColumnInfo<M> for WriteColumn<'a, M, T, F> {
     fn len(&self) -> usize {
         self.col.data.len()
     }

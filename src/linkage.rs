@@ -181,6 +181,10 @@ impl<FM: TableMarker> Id<FM> {
         Some(FM::NAME)
     }
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
+        if TypeId::of::<LM>() == TypeId::of::<FM>() {
+            // You're on your own.
+            return;
+        }
         universe.add_index::<LM, Self>();
         universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
             TypeId::of::<LM>(),
@@ -249,6 +253,10 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
         Some(FM::NAME)
     }
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
+        if TypeId::of::<LM>() == TypeId::of::<FM>() {
+            // You're on your own.
+            return;
+        }
         universe.add_index::<LM, Self>();
         universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
             TypeId::of::<LM>(),

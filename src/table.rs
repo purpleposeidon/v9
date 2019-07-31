@@ -506,11 +506,9 @@ macro_rules! decl_table {
                 pub use self::edit::__Edit as Edit;
                 /// Write an individual column.
                 pub mod write {
-                    // FIXME: Why would you want this!? You could make the columns uneven!
-                    // Maybe we should only make public the context?
-                    // A possible use is that you might be deserializing from a SOA.
-                    // However that's probably the only usage.
-                    $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
+                    $crate::decl_table! {
+                        @decl_write_types $($cn)*
+                    }
                     /// Lists valid IDs.
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     $crate::decl_context! {
@@ -530,6 +528,15 @@ macro_rules! decl_table {
             pub use self::in_user::*;
             // These might conflict, but then at least you'd deserve it.
         }
+    };
+    (@decl_write_types $cn:ident $($cns:ident)*) => {
+        // FIXME: Why would you want this!? You could make the columns uneven!
+        // Maybe we should only make public the context?
+        // A possible use is that you might be deserializing from a SOA.
+        // However that's probably the only usage.
+        // If we abandon the "most stuff is public" policy, this'd be a good candidate for hiding.
+        pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn, $crate::column::HeadCol>;
+        $(pub type $cns<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cns, $crate::column::TailCol>;)*
     };
 }
 
