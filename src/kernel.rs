@@ -51,6 +51,9 @@ impl Universe {
         let rez = Rez::new(mem::transmute(&buffer.vals[..]));
         let resources = &buffer.resources;
         let unwind = panic::catch_unwind(AssertUnwindSafe(move || {
+            // Hey! You! Are you in gdb trying to bust into your kernel?
+            // Stepping from here doesn't work for some reason.
+            //      break v9_before_kernel_run
             func(self, rez, return_value, &mut move || {
                 // The cleanup closure.
                 // See comment in 'fn run' KernelFn impl.
@@ -185,6 +188,10 @@ impl LockBuffer {
         Self::new::<Dump, Ret, K>()
     }
 }
+
+#[no_mangle]
+fn v9_before_kernel_run() {}
+
 // This seems janky, but I think it's barely sound?
 // locks, vals: Only modified through a &mut reference.
 // run: Well, I've put Send+Sync bounds on everything.
@@ -202,6 +209,7 @@ impl Kernel {
             // Strange that we must duplicate this...
             run: Box::new(move |universe, rez, ret, cleanup| unsafe {
                 let ret: &mut Option<Ret> = ret.downcast_mut().expect("return type mismatch");
+                v9_before_kernel_run();
                 *ret = Some(k.run(universe, rez, cleanup));
             }),
             buffer: LockBuffer::new::<Dump, Ret, K>(),
