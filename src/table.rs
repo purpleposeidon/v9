@@ -254,7 +254,7 @@ macro_rules! decl_table {
 
                 /// Column names.
                 pub mod names {
-                    $(pub const $cn: &'static str = concat!(stringify!($table), ".", stringify!($cn));)*
+                    $(pub const $cn: &'static str = concat!(stringify!($name), ".", stringify!($cn));)*
                 }
 
                 impl<'a> Read<'a> {
