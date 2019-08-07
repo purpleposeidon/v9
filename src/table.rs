@@ -293,6 +293,15 @@ macro_rules! decl_table {
                     }
                 }
                 impl<'a> Write<'a> {
+                    pub fn clone_row(&self, i: impl 'a + Check<M=Marker>) -> Row {
+                        self.ref_row(i).to_owned()
+                    }
+                    pub fn ref_row(&self, i: impl 'a + Check<M=Marker>) -> RowRef {
+                        // We can't actually check.
+                        RowRef {
+                            $($cn: &self.$cn[i],)*
+                        }
+                    }
                     pub fn len(&self) -> usize {
                         self.__v9__iter.len()
                     }
