@@ -346,6 +346,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
 #[derive(Debug, Default)]
 pub struct Selection {
     pub seen: HashMap<TypeId, Box<Any + Send + Sync>>,
+    pub selection_order: Vec<TypeId>,
 }
 impl Selection {
     pub fn get<M: TableMarker>(&self) -> Option<&RunList<M>> {
@@ -364,14 +365,21 @@ impl Selection {
     pub fn deliver<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
         let ty = TypeId::of::<M>();
         self.seen.insert(ty, ids);
+        self.selection_order.push(ty);
     }
     pub fn from<FM: TableMarker>(sel: RunList<FM>) -> Self {
         let mut seen = HashMap::new();
         seen.insert(TypeId::of::<FM>(), Box::new(sel) as Box<Any + Send + Sync>);
-        Selection { seen }
+        Selection { seen, selection_order: vec![] }
     }
     pub fn add_stub<T: StdAny>(&mut self) {
-        self.seen.insert(TypeId::of::<T>(), Box::new(()));
+        let ty = TypeId::of::<T>();
+        self.seen.insert(ty, Box::new(()));
+        self.selection_order.push(ty);
+    }
+    pub fn deselect(&mut self, ty: TypeId) {
+        self.seen.remove(&ty);
+        self.selection_order.retain(|&t| t != ty);
     }
 }
 #[derive(Default)]

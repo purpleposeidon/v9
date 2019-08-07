@@ -182,7 +182,7 @@ where
     type Owned = EditColumnOwned<'a, M, T>;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
         let col: &mut Column<M, T> = rez.take_mut_downcast();
-        let must_log = universe.has::<Tracker<EditColumn<M, T>>>();
+        let must_log = universe.is_tracked::<EditColumn<M, T>>();
         let log = vec![];
         EditColumnOwned { col, must_log, log }
     }
@@ -247,7 +247,7 @@ where
     }
     type Owned = WriteColLog<M, T>;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
-        let must_log = universe.has::<Tracker<Pushed<M>>>();
+        let must_log = universe.is_tracked::<Pushed<M>>();
         let col: &mut Column<M, T> = rez.take_mut_downcast();
         let len = col.data.len();
         WriteColLog {

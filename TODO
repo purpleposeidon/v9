@@ -7,12 +7,16 @@ Universe item docs are dumb
 crate docs: s/map/run
 
 # Polish
+we can remove universe.kmap() now that we have eval().
 the firewall in table! can probably go away now that we have the 'mod types'
 
 crate::macro_prelude
  -> crate::tables::prelude
 
 remove abs path requirement on tables
+
+Add "ImmediateEdit" so you can say `Immediate<my_table::edit::Foo>`. It would allow editing a column without there being any question of logging. This would maybe allow some sweet SIMD optimizations or something. It would have to assert, during Extract, that there were no trackers.
+impl Extract for T where T: Property + Copy
 
 # Consistency/Ordering Issue
 We acquire a bunch of locks.
@@ -27,3 +31,9 @@ Some events need to be submitted to maintain data consistency
         * Doing consistency can result in ARBITRARY COLUMN ACCESS!?
         * How 'bout this. ThreadId. Only the current thread can acquire locks.
 - They can release locks if they like.
+
+# Uhm
+We should make it so that you have the option of that, when you call 'remove' on something, if it's got linkage, it also removes the foreign table?
+    Maybe you should just delete from the foreign table instead?
+Mark Column::push as unsafe.
+s/Obj/crate:typeable
