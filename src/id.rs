@@ -548,7 +548,7 @@ impl<M: TableMarker> IdList<M> {
         let b = self.outer_capacity;
         let a = Id::from_usize(a);
         let b = Id::from_usize(b);
-        self.pushing.push_run(a, b);
+        self.pushing.push_run(a..=b.step(-1));
         Err(IdRange::new(a, b))
     }
     /// The next Id that will be used for the next call to push. Be aware that calling this
@@ -841,10 +841,15 @@ impl<M: TableMarker> RunList<M> {
         };
         self.data.push(new);
     }
-    pub fn push_run(&mut self, l: Id<M>, h: Id<M>) {
-        assert!(h > l);
-        self.len += h.to_usize() - l.to_usize();
+    pub fn push_run(&mut self, r: RangeInclusive<Id<M>>) {
+        // FIXME: if r.is_empty() { return; }
+        let l = *r.start();
+        let h = *r.end();
+        assert!(h >= l);
+        self.len += 1 + h.to_usize() - l.to_usize();
         if let Some((a, b)) = self.data.last_mut() {
+            // We're just gonna assume that r is not inclusive with any existing run.
+            // So we handle [0..=5], [6..=9], but not [0..=5], [5..=9] or [0..=5], [0..=9].
             if a <= b && b.step(1) == l {
                 *b = h;
                 return;
@@ -936,12 +941,9 @@ impl<M: TableMarker> RunList<M> {
         runs.extend(self.iter_runs());
         runs.sort_by_key(|run| *run.start());
         self.data.clear();
+        self.data.reserve(runs.len());
         for run in runs.into_iter() {
-            if run.start() == run.end() {
-                self.push(*run.start());
-            } else {
-                self.push_run(*run.start(), *run.end());
-            }
+            self.push_run(run);
         }
     }
     // FIXME: fn compact(&mut self);
@@ -968,7 +970,6 @@ impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
         let buff = if let Some(buff) = self.buffer.take() {
             buff
         } else if let Some((&x, xs)) = self.data.split_first() {
-            self.buffer = Some(x);
             self.data = xs;
             x
         } else {
@@ -980,7 +981,10 @@ impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
         // (a > b) --> [b, a]
         match a.cmp(&b) {
             Ordering::Less => {
-                self.buffer = Some((a.step(1), b));
+                let buff = (a.step(1), b);
+                if buff.0 <= buff.1 {
+                    self.buffer = Some(buff);
+                }
                 Some(a)
             }
             Ordering::Equal => {
@@ -1123,5 +1127,14 @@ mod test_run_list {
     #[test]
     fn random_found() {
         check([3, 16, 1].iter().cloned());
+    }
+
+    #[test]
+    fn short_range() {
+        let mut l = RunList::<M>::default();
+        l.push_run(Id(0)..=Id(0));
+        let mut it = l.iter();
+        assert_eq!(it.next(), Some(Id(0)));
+        assert_eq!(it.next(), None);
     }
 }

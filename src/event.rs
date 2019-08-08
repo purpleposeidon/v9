@@ -215,8 +215,8 @@ mod test_tracking {
             for id in sailors.iter() {
                 let sailor = sailors.ref_row(id);
                 println!("{:?} = {:?}", id, sailor);
-                assert_ne!(sailor.name, &"Darude");
                 assert_ne!(sailor.name, &"Charles");
+                assert_ne!(sailor.name, &"Darude");
                 count += 1;
             }
             assert_eq!(count, 6 - 2);
