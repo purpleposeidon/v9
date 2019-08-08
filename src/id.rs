@@ -374,34 +374,51 @@ impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
 #[derive(Default)]
 pub struct IdList<M: TableMarker> {
     pub free: RunList<M>,
-    pub deleting: SyncRef<RunList<M>>,
-    pub needed: bool,
-    len: usize,
+    pushing: RunList<M>,
+    deleting: SyncRef<RunList<M>>,
+    outer_capacity: usize,
     // We only use SyncRef because elsehwere needs a &mut V, but this is unusable.
 }
 impl<M: TableMarker> Obj for IdList<M> {}
-impl<M: TableMarker> Drop for IdList<M> {
-    fn drop(&mut self) {
-        if !self.deleting.get_mut().is_empty() {
-            panic!("unflushed IdList");
-        }
-    }
-}
 impl<M: TableMarker> IdList<M> {
-    pub fn len(&self) -> usize { self.len }
-    pub unsafe fn set_len(&mut self, len: usize) { self.len = len }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.outer_capacity - self.free.len()
+    }
+    #[inline]
+    pub fn outer_capacity(&self) -> usize { self.outer_capacity }
+    #[inline]
+    pub unsafe fn set_outer_capacity(&mut self, outer_capacity: usize) { self.outer_capacity = outer_capacity }
     pub fn exists(&self, id: Id<M>) -> bool {
-        id.to_usize() < self.len && !self.free.iter_runs().any(|run| {
+        id.to_usize() < self.outer_capacity && !self.free.iter_runs().any(|run| {
             run.contains(&id)
         })
     }
-    pub fn flush(&mut self, universe: &Universe) {
-        let ids = mem::replace(self.deleting.get_mut(), RunList::default());
-        let mut deleted = Deleted { ids };
-        universe.submit_event(&mut deleted);
-        let tmp = self.deleting.get_mut();
-        mem::swap(&mut deleted.ids, tmp);
-        assert!(deleted.ids.is_empty(), "additional deletions occured during deletion flush");
+    pub fn flush(&mut self, universe: &Universe, tracked_events: u8) {
+        if !self.pushing.is_empty() {
+            if tracked_events & TRACK_PUSH != 0 {
+                let ids = mem::replace(&mut self.pushing, RunList::default());
+                let mut pushed = Pushed { ids };
+                universe.submit_event(&mut pushed);
+                mem::swap(&mut pushed.ids, &mut self.pushing);
+                if !pushed.ids.is_empty() {
+                    panic!("changed during flush");
+                }
+            }
+            self.pushing.clear();
+        }
+        if !self.deleting.get_mut().is_empty() {
+            if tracked_events & TRACK_DELETE != 0 {
+                let ids = mem::replace(self.deleting.get_mut(), RunList::default());
+                let mut deleted = Deleted { ids };
+                universe.submit_event(&mut deleted);
+                mem::swap(&mut deleted.ids, self.deleting.get_mut());
+                if !deleted.ids.is_empty() {
+                    panic!("changed during flush");
+                }
+            }
+            self.write_deletions();
+        }
     }
     pub fn write_deletions(&mut self) {
         // This uses timsort, which WP says has special handling for runs.
@@ -413,21 +430,27 @@ impl<M: TableMarker> IdList<M> {
         // We could implement this in a better way by merging back-to-front.
         // We'd extend `free` with !0's, merge backwards.
     }
+    #[inline]
     pub fn iter(&self) -> CheckedIter<M> {
         unsafe {
-            CheckedIter::new(self.len, &self.free)
+            CheckedIter::new(self.outer_capacity, &self.free)
         }
     }
+    #[inline]
     pub fn range(&self, range: UncheckedIdRange<M>) -> CheckedIter<M> {
         unsafe {
             assert!(range.start <= range.end);
             CheckedIter::over(range, &self.free)
         }
     }
+    #[inline]
     pub fn delete(&mut self, id: Id<M>) {
-        let deleting = self.deleting.get_mut();
-        deleting.push(id);
+        self.deleting.get_mut().push(id);
     }
+    pub fn delete_extend(&mut self, i: impl Iterator<Item=Id<M>>) {
+        self.deleting.get_mut().extend(i);
+    }
+    #[inline]
     pub fn removing(&mut self) -> ListRemoving<'static, M> {
         // NB: This is unsound. This is done intentionally.
         // It makes usage nicer. Don't do weird things.
@@ -439,11 +462,12 @@ impl<M: TableMarker> IdList<M> {
         //          Stores a reference to self.free
         //    vs impl IndexMut for Column
         //          Entangles the lifetime of the indexed value with &mut self
+        // FIXME: Could we sneak an abort in somehow?
         unsafe {
             ListRemoving {
                 checked: {
                     // Passing in self.len
-                    CheckedIter::new(self.len, mem::transmute(&self.free))
+                    CheckedIter::new(self.outer_capacity, mem::transmute(&self.free))
                 },
                 deleting: mem::transmute(&self.deleting),
             }
@@ -462,7 +486,7 @@ impl<M: TableMarker> IdList<M> {
         ListRemoving {
             checked: unsafe {
                 // Passing in self.len
-                CheckedIter::new(self.len, &self.free)
+                CheckedIter::new(self.outer_capacity, &self.free)
             },
             deleting: &self.deleting,
         }
@@ -471,11 +495,13 @@ impl<M: TableMarker> IdList<M> {
     /// This function is unsafe because it does not push anything to the column's Vecs.
     pub unsafe fn recycle_id(&mut self) -> Result<Id<M>, Id<M>> {
         if let Some(id) = self.free.pop() {
+            self.pushing.push(id);
             Ok(id)
         } else {
-            let i = self.len;
-            self.len += 1;
-            Err(Id::from_usize(i))
+            let id = Id::from_usize(self.outer_capacity);
+            self.outer_capacity += 1;
+            self.pushing.push(id);
+            Err(id)
         }
     }
     /// Note: This method is `O(self.free.data.len())`
@@ -517,10 +543,13 @@ impl<M: TableMarker> IdList<M> {
         if let Some(ret) = ret {
             return Ok(ret);
         }
-        let a = self.len;
-        self.len += n;
-        let b = self.len;
-        Err(IdRange::new(Id::from_usize(a), Id::from_usize(b)))
+        let a = self.outer_capacity;
+        self.outer_capacity += n;
+        let b = self.outer_capacity;
+        let a = Id::from_usize(a);
+        let b = Id::from_usize(b);
+        self.pushing.push_run(a, b);
+        Err(IdRange::new(a, b))
     }
     /// The next Id that will be used for the next call to push. Be aware that calling this
     /// multiple times will return the same ID.
@@ -528,14 +557,14 @@ impl<M: TableMarker> IdList<M> {
         // Idea: What if there wasa  'future IDs' iterator?
         self.free.last()
             .unwrap_or_else(|| {
-                Id::from_usize(self.len)
+                Id::from_usize(self.outer_capacity)
             })
     }
     pub fn check<'a, 'b>(&'a self, i: impl Check<M=M> + 'b) -> CheckedId<'a, M> {
         unsafe {
             i.check_from_len(
                 PhantomData::<&'a M>,
-                self.len,
+                self.outer_capacity,
             )
         }
     }
@@ -575,36 +604,44 @@ unsafe impl<'a, M: TableMarker> Extract for &'a mut IdList<M> {
         f(TypeId::of::<IdList<M>>(), Access::Write)
     }
     type Owned = Self;
-    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
-        let me: Self = rez.take_mut_downcast();
-        me.needed = universe.has::<Tracker<Deleted<M>>>();
-        me
+    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
+        rez.take_mut_downcast()
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
         &mut *owned
     }
     type Cleanup = IdListCleanup;
 }
+const TRACK_PUSH: u8 = 1;
+const TRACK_DELETE: u8 = 2;
 #[doc(hidden)]
 pub struct IdListCleanup {
-    anything: bool,
+    tracked_events: u8,
+    nothing: bool,
 }
 unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
-    fn pre_cleanup(owned: <&'a mut IdList<M> as Extract>::Owned, _universe: &Universe) -> Self {
-        IdListCleanup {
-            anything: owned.needed | !owned.deleting.get_mut().is_empty(),
-        }
+    fn pre_cleanup(owned: &'a mut IdList<M>, universe: &Universe) -> Self {
+        let tracked_events = {
+            let p = universe.has::<Tracker<Pushed<M>>>();
+            let d = universe.has::<Tracker<Deleted<M>>>();
+            (if p { TRACK_PUSH } else { 0 }) | (if d { TRACK_DELETE } else { 0 })
+        };
+        let nothing = owned.pushing.is_empty() && owned.deleting.get_mut().is_empty();
+        IdListCleanup { tracked_events, nothing }
     }
     fn post_cleanup(self, universe: &Universe) {
-        if !self.anything { return; }
+        if self.nothing { return; }
         // FIXME: this needs to happen without any other thread having the opportunity to acquire
         // locks. We could have a bit of state on 'verse that says "you can only release locks",
         // and we can set it in the cleanup() closure, and temporarily release it here.
+        // Otherwise there is a legitimate risk that another thread will snatch something we've
+        // locked before we're done cleaning up.
+        // FIXME: In the meanwhile, we could assert that `pushing` & `deleting` are empty?
+        // Would a "reentrant lock" help here?
+        // Possibly the problem is that any arbitrary dang thing can have a dependence hanging off
+        // of the event being processed. We can't even look ahead! And it could be very recursive!
         universe.with_mut(|owned: &mut IdList<M>| {
-            if owned.needed {
-                owned.flush(universe);
-            }
-            owned.write_deletions();
+            owned.flush(universe, self.tracked_events);
         });
     }
 }
@@ -661,9 +698,9 @@ pub struct CheckedIter<'a, M: TableMarker> {
     free: Peekable<RunListIter<'a, M>>,
 }
 impl<'a, M: TableMarker> CheckedIter<'a, M> {
-    pub unsafe fn new(len: usize, free: &'a RunList<M>) -> Self {
+    pub unsafe fn new(outer_capacity: usize, free: &'a RunList<M>) -> Self {
         CheckedIter {
-            range: IdRange::to(Id::from_usize(len)),
+            range: IdRange::to(Id::from_usize(outer_capacity)),
             free: free.iter().peekable(),
         }
     }
@@ -689,6 +726,7 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
         }
         None
     }
+    // FIXME: impl a size_hint
 }
 
 /// Stores `Id`s with great efficiency.
@@ -703,6 +741,7 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 #[derive(Clone, Default)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct RunList<M: TableMarker> {
+    len: usize,
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
     // FIXME: is_sorted: bool,
 }
@@ -726,8 +765,11 @@ impl<M: TableMarker> fmt::Debug for RunList<M> {
     }
 }
 impl<M: TableMarker> RunList<M> {
+    #[inline]
+    pub fn len(&self) -> usize { self.len }
     pub fn is_empty(&self) -> bool { self.iter().next().is_none() }
     pub fn push(&mut self, i: Id<M>) {
+        self.len += 1;
         // (a < b) --> a..=b
         // (a = b) --> [a]
         // (a > b) --> [b, a]
@@ -800,6 +842,8 @@ impl<M: TableMarker> RunList<M> {
         self.data.push(new);
     }
     pub fn push_run(&mut self, l: Id<M>, h: Id<M>) {
+        assert!(h > l);
+        self.len += h.to_usize() - l.to_usize();
         if let Some((a, b)) = self.data.last_mut() {
             if a <= b && b.step(1) == l {
                 *b = h;
@@ -814,6 +858,7 @@ impl<M: TableMarker> RunList<M> {
     }
     pub fn pop(&mut self) -> Option<Id<M>> {
         if let Some((a, b)) = self.data.pop() {
+            self.len -= 1;
             Some(match a.cmp(&b) {
                 Ordering::Greater => {
                     self.data.push((b, b));
@@ -840,13 +885,16 @@ impl<M: TableMarker> RunList<M> {
             None
         }
     }
-    pub fn clear(&mut self) { self.data.clear() }
+    pub fn clear(&mut self) {
+        self.len = 0;
+        self.data.clear();
+    }
     pub fn iter(&self) -> RunListIter<M> {
         self.into_iter()
     }
     pub fn extend_from(&mut self, new: Self) {
-        self.data.reserve(new.data.len());
         self.data.extend(new.data);
+        self.len += new.len;
     }
     pub fn extend(&mut self, iter: impl Iterator<Item=Id<M>>) {
         for id in iter {
@@ -915,6 +963,7 @@ pub struct RunListIter<'a, M: TableMarker> {
 }
 impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
     type Item = Id<M>;
+    // FIXME: impl size_hint
     fn next(&mut self) -> Option<Self::Item> {
         let buff = if let Some(buff) = self.buffer.take() {
             buff

@@ -226,7 +226,7 @@ mod test_tracking {
 
 // FIXME: Rename to `Push, Edit, Move, Delete` ?
 pub struct Pushed<M: TableMarker> {
-    pub range: UncheckedIdRange<M>,
+    pub ids: RunList<M>,
 }
 impl<M: TableMarker> Obj for Pushed<M> {}
 pub struct Edited<M: TableMarker, T: 'static> {

@@ -274,8 +274,7 @@ macro_rules! decl_table {
                         }
                     }
                     pub fn iter_all(&self) -> UncheckedIdRange<Marker> {
-                        let end = self.len();
-                        IdRange::to(Id::from_usize(end))
+                        IdRange::to(Id::from_usize(self.__v9__iter.outer_capacity()))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         self.__v9__iter.iter()
@@ -302,12 +301,15 @@ macro_rules! decl_table {
                             $($cn: &self.$cn[i],)*
                         }
                     }
+                    #[inline]
                     pub fn len(&self) -> usize {
                         self.__v9__iter.len()
                     }
+                    #[inline]
                     pub fn ids(&self) -> &Ids {
                         self.__v9__iter
                     }
+                    #[inline]
                     pub fn ids_mut(&mut self) -> &mut Ids {
                         self.__v9__iter
                     }
@@ -379,11 +381,10 @@ macro_rules! decl_table {
                     }
                     pub fn remove(&mut self, i: impl Into<Id>) {
                         // FIXME: This probably needs more testing.
-                        self.__v9__iter.deleting.get_mut().push(i.into());
+                        self.__v9__iter.delete(i.into());
                     }
                     pub fn iter_all(&self) -> IdRange<Id> {
-                        let end = self.len();
-                        IdRange::to(Id::from_usize(end))
+                        IdRange::to(Id::from_usize(self.__v9__iter.outer_capacity()))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         self.__v9__iter.iter()
@@ -515,9 +516,12 @@ macro_rules! decl_table {
                 pub use self::edit::__Edit as Edit;
                 /// Write an individual column.
                 pub mod write {
-                    $crate::decl_table! {
-                        @decl_write_types $($cn)*
-                    }
+                    // FIXME: Why would you want this!? You could make the columns uneven!
+                    // Maybe we should only make public the context?
+                    // A possible use is that you might be deserializing from a SOA.
+                    // However that's probably the only usage.
+                    // If we abandon the "most stuff is public" policy, this'd be a good candidate for hiding.
+                    $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     /// Lists valid IDs.
                     pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
                     $crate::decl_context! {
@@ -537,15 +541,6 @@ macro_rules! decl_table {
             pub use self::in_user::*;
             // These might conflict, but then at least you'd deserve it.
         }
-    };
-    (@decl_write_types $cn:ident $($cns:ident)*) => {
-        // FIXME: Why would you want this!? You could make the columns uneven!
-        // Maybe we should only make public the context?
-        // A possible use is that you might be deserializing from a SOA.
-        // However that's probably the only usage.
-        // If we abandon the "most stuff is public" policy, this'd be a good candidate for hiding.
-        pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn, $crate::column::HeadCol>;
-        $(pub type $cns<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cns, $crate::column::TailCol>;)*
     };
 }
 

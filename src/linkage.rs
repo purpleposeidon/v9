@@ -90,7 +90,7 @@ impl Universe {
                 // 2. Insertion
                 // i = col.push(new)
                 // new index[(old, i)]
-                for id in ev.range {
+                for id in &ev.ids {
                     let val = local[id];
                     index.map.insert((val, id), ());
                 }
@@ -190,14 +190,17 @@ impl<FM: TableMarker> Id<FM> {
             TypeId::of::<LM>(),
             |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
                 // 6. Use the index to decide which IDs get the axe.
-                let deleting = list.deleting.get_mut();
                 // We won't reserve enough space if the local table has multiple references to a
                 // single foreign row.
-                for fid in &ev.ids {
-                    let range = ColumnIndex::full_range(fid);
-                    let locals = index.map.range(range);
-                    deleting.extend(locals.map(|((_fid, lid), ())| *lid));
-                }
+                list.delete_extend(
+                    ev.ids
+                        .iter()
+                        .flat_map(|fid| {
+                            let range = ColumnIndex::full_range(fid);
+                            let locals = index.map.range(range);
+                            locals.into_iter().map(|((_fid, lid), ())| *lid)
+                        })
+                );
             },
         );
         universe.add_tracker_with_ref_arg::<_, _, Moved<FM>>(
@@ -261,7 +264,6 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
         universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
             TypeId::of::<LM>(),
             |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
-                let deleting = list.deleting.get_mut();
                 let mut prev = IdRange::empty();
                 for fid in &ev.ids {
                     if prev.contains(fid) {
@@ -279,7 +281,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
                     while let Some(((frange, lid), ())) = iter.next_back() {
                         if frange.contains(fid) {
                             prev = *frange;
-                            deleting.push(*lid);
+                            list.delete(*lid);
                         } else {
                             break;
                         }
