@@ -9,14 +9,12 @@ pub type Handler<E> = Box<FnMut(&Universe, &mut E) + Send + Sync>;
 // FIXME: Events should use RunIter.
 pub struct Tracker<E: 'static + Send + Sync> {
     pub handlers: Vec<Handler<E>>,
-    pub owners: Vec<TypeId>,
 }
 impl<E: 'static + Send + Sync> Obj for Tracker<E> {}
 impl<E: 'static + Send + Sync> Tracker<E> {
     pub fn new() -> Self {
         Tracker {
             handlers: vec![],
-            owners: vec![],
         }
     }
 }
@@ -50,27 +48,11 @@ impl Universe {
         let objects = self.objects.read().unwrap();
         objects.get(ty).is_some()
     }
-    pub fn is_tracking<E: 'static + Send + Sync>(&self, owner: TypeId) -> bool {
-        // Can't use with() because object may not exist.
-        let ty = TypeId::of::<Tracker<E>>();
-        let mut objects = self.objects.write().unwrap();
-        let mut ret = false;
-        if let Some(obj) = objects.get_mut(&ty) {
-            obj.acquire(Access::Read);
-            unsafe {
-                let obj: &dyn Obj = &*obj.contents();
-                let obj: &Tracker<E> = obj.downcast_ref().unwrap();
-                ret = obj.owners.contains(&owner);
-            }
-            obj.release(Access::Read);
-        }
-        ret
-    }
     /// `owner` should be `TypeId::of::<LocalTableMarker>()`.
-    pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &mut E) + 'static + Send + Sync>(&self, owner: TypeId, f: F) {
-        self.add_tracker_box(owner, Box::new(f))
+    pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &mut E) + 'static + Send + Sync>(&self, f: F) {
+        self.add_tracker_box(Box::new(f))
     }
-    fn add_tracker_box<E: 'static + Send + Sync>(&self, owner: TypeId, f: Box<FnMut(&Universe, &mut E) + Send + Sync>) {
+    fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<FnMut(&Universe, &mut E) + Send + Sync>) {
         // Can't use with() because object may not exist.
         let ty = TypeId::of::<Tracker<E>>();
         let mut objects = self.objects.write().unwrap();
@@ -81,7 +63,6 @@ impl Universe {
         unsafe {
             let obj: &mut dyn Obj = &mut *obj.contents();
             let obj: &mut Tracker<E> = obj.downcast_mut().unwrap();
-            obj.owners.push(owner);
             obj.handlers.push(f);
         }
         obj.release(Access::Write);

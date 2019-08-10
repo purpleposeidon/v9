@@ -78,7 +78,7 @@ where
         unsafe {
             let i = i.check_from_len(PhantomData, self.col.data.len());
             if let Some((prev, dude)) = self.log.last() {
-                match prev.cmp(&i.uncheck()) {
+                match i.uncheck().cmp(prev) {
                     Ordering::Less => disordered_column_access(),
                     Ordering::Equal => dude,
                     Ordering::Greater => self.col.data.get_unchecked(i.to_usize()),
@@ -102,14 +102,14 @@ where
                 return self.col.data.get_unchecked_mut(i.to_usize());
             }
             let prev = self.log.last().map(|(i, _)| i);
-            if let Some(prev) = prev {
-                match prev.cmp(&i) {
-                    Ordering::Less => disordered_column_access(),
-                    Ordering::Equal => (),
-                    Ordering::Greater => {
-                        let val = self.col.data.get_unchecked(i.to_usize()).clone();
-                        self.log.push((i, val))
-                    }
+            let prev = prev.map(|prev| i.cmp(prev));
+            let prev = prev.unwrap_or(Ordering::Greater);
+            match prev {
+                Ordering::Less => disordered_column_access(),
+                Ordering::Equal => (),
+                Ordering::Greater => {
+                    let val = self.col.data.get_unchecked(i.to_usize()).clone();
+                    self.log.push((i, val))
                 }
             }
             if let Some((_i, v)) = self.log.last_mut() {
@@ -175,7 +175,7 @@ where
     type Owned = EditColumnOwned<'a, M, T>;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
         let col: &mut Column<M, T> = rez.take_mut_downcast();
-        let must_log = universe.is_tracked::<EditColumn<M, T>>();
+        let must_log = universe.is_tracked::<Edited<M, T>>();
         let log = vec![];
         EditColumnOwned { col, must_log, log }
     }

@@ -12,13 +12,45 @@ v9::decl_property! {
     pub BOMB_PRIMED: ~bool = true;
 }
 
-
 #[test]
-fn main() {
+fn track_edit() {
     let mut universe = Universe::new();
     self::dudes::Marker::register(&mut universe);
     self::BOMB_PRIMED::register(&mut universe);
-    universe.add_tracker_with_ref_arg::<_, _, Deleted<self::dudes::Marker>>(TypeId::of::<()>(), |_ev: KernelArg<&Deleted<self::dudes::Marker>>, bomb: &mut BOMB_PRIMED| {
+    universe.add_tracker_with_ref_arg::<_, _, Edited<self::dudes::Marker, u64>>(|ev: KernelArg<&Edited<self::dudes::Marker, u64>>, bomb: &mut BOMB_PRIMED| {
+        println!("Tracking our dudes");
+        for (_id, new) in &ev.new {
+            assert_eq!(*new, 100);
+        }
+        **bomb = false;
+    });
+    universe.eval(|mut dudes: self::dudes::Write| {
+        println!("Pushing some dudes");
+        dudes.push(self::dudes::Row {
+            dudeitude: 10,
+        });
+        dudes.push(self::dudes::Row {
+            dudeitude: 10,
+        });
+    });
+    universe.eval(|mut dudes: self::dudes::Edit, iter: &self::dudes::Ids| {
+        println!("Editing our dudes");
+        for dude in iter {
+            dudes.dudeitude[dude] = 100;
+        }
+    });
+    universe.with(|bomb: &BOMB_PRIMED| {
+        assert!(!**bomb);
+    });
+}
+
+
+#[test]
+fn track_removal() {
+    let mut universe = Universe::new();
+    self::dudes::Marker::register(&mut universe);
+    self::BOMB_PRIMED::register(&mut universe);
+    universe.add_tracker_with_ref_arg::<_, _, Deleted<self::dudes::Marker>>(|_ev: KernelArg<&Deleted<self::dudes::Marker>>, bomb: &mut BOMB_PRIMED| {
         assert!(**bomb, "whack.");
         println!("dude. he died. defusing the bomb. for us. dude had a lot of dudeitude, dude.");
         **bomb = false;
