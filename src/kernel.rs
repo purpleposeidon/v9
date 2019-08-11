@@ -238,6 +238,9 @@ impl Kernel {
 
 /// This wraps an argument to a kernel that does not exist in the `Universe`. It is provided using
 /// `Kernel::push_arg` before running the kernel.
+///
+/// It's much nicer to have the thing you want in the `Universe`,
+/// but sometimes a non-`'static` lifetime is required.
 pub struct KernelArg<T> {
     val: T,
 }
