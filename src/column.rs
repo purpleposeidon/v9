@@ -19,7 +19,6 @@ impl<M: TableMarker, T> Default for Column<M, T> {
         Self::new()
     }
 }
-impl<M: TableMarker, T: 'static + Send + Sync> Obj for Column<M, T> {}
 impl<M: TableMarker, T> Column<M, T> {
     pub fn new() -> Self {
         Column {
@@ -148,7 +147,7 @@ where
     type Ty = Column<M, T>;
     const ACC: Access = Access::Read;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
-        let obj: &'static dyn Obj = rez.take_ref();
+        let obj: &'static dyn Any = rez.take_ref();
         ReadColumn {
             col: obj.downcast_ref().unwrap(),
         }

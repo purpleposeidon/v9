@@ -44,7 +44,6 @@ impl<M: TableMarker, T: Ord> Default for ColumnIndex<M, T> {
         }
     }
 }
-impl<M: TableMarker, T: 'static + Send + Sync + Ord> Obj for ColumnIndex<M, T> {}
 unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a ColumnIndex<M, T> {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<ColumnIndex<M, T>>(), Access::Read)
@@ -140,7 +139,7 @@ impl Universe {
     where
         F: KernelFn<Dump, ()>,
         F: 'static + Send + Sync,
-        E: Obj,
+        E: Any + Send + Sync,
         Dump: Send + Sync,
     {
         let mut kernel = Kernel::new(f);
@@ -153,7 +152,7 @@ impl Universe {
     where
         F: KernelFn<Dump, ()>,
         F: 'static + Send + Sync,
-        E: Obj,
+        E: Any + Send + Sync,
         Dump: Send + Sync,
     {
         let mut kernel = Kernel::new(f);
@@ -365,7 +364,7 @@ impl Selection {
         seen.insert(TypeId::of::<FM>(), Box::new(sel) as Box<Any + Send + Sync>);
         Selection { seen, selection_order: vec![] }
     }
-    pub fn add_stub<T: StdAny>(&mut self) {
+    pub fn add_stub<T: Any>(&mut self) {
         let ty = TypeId::of::<T>();
         self.seen.insert(ty, Box::new(()));
         self.selection_order.push(ty);
@@ -388,4 +387,3 @@ impl<FM: TableMarker> Select<FM> {
         }
     }
 }
-impl<FM: TableMarker> Obj for Select<FM> {}

@@ -10,7 +10,6 @@ pub type Handler<E> = Box<FnMut(&Universe, &mut E) + Send + Sync>;
 pub struct Tracker<E: 'static + Send + Sync> {
     pub handlers: Vec<Handler<E>>,
 }
-impl<E: 'static + Send + Sync> Obj for Tracker<E> {}
 impl<E: 'static + Send + Sync> Tracker<E> {
     pub fn new() -> Self {
         Tracker {
@@ -25,7 +24,7 @@ impl Universe {
             let mut objects = self.objects.write().unwrap();
             if let Some(locked) = objects.get_mut(ty) {
                 locked.acquire(Access::Write);
-                let obj: &mut dyn Obj = &mut *locked.contents();
+                let obj: &mut dyn Any = &mut *locked.contents();
                 obj.downcast_mut::<Tracker<E>>().unwrap()
             } else {
                 panic!("an event should not be created if there are no handlers");
@@ -61,7 +60,7 @@ impl Universe {
             .or_insert_with(|| Locked::new(Box::new(Tracker::<E>::new())));
         obj.acquire(Access::Write);
         unsafe {
-            let obj: &mut dyn Obj = &mut *obj.contents();
+            let obj: &mut dyn Any = &mut *obj.contents();
             let obj: &mut Tracker<E> = obj.downcast_mut().unwrap();
             obj.handlers.push(f);
         }
@@ -209,7 +208,6 @@ mod test_tracking {
 pub struct Pushed<M: TableMarker> {
     pub ids: RunList<M>,
 }
-impl<M: TableMarker> Obj for Pushed<M> {}
 pub struct Edited<M: TableMarker, T: 'static> {
     pub(crate) col: *const Column<M, T>,
     pub new: Vec<(Id<M>, T)>,
@@ -219,7 +217,6 @@ pub struct Edited<M: TableMarker, T: 'static> {
 }
 unsafe impl<M: TableMarker, T: 'static> Send for Edited<M, T> {}
 unsafe impl<M: TableMarker, T: 'static> Sync for Edited<M, T> {}
-impl<M: TableMarker, T: 'static + Send + Sync> Obj for Edited<M, T> {}
 impl<M: TableMarker, T> Edited<M, T> {
     pub fn col<'a>(&'a self) -> &'a Column<M, T> {
         unsafe { &*self.col }
@@ -230,8 +227,6 @@ pub struct Moved<M: TableMarker> {
     /// (old, new)
     pub ids: Vec<(Id<M>, Id<M>)>,
 }
-impl<M: TableMarker> Obj for Moved<M> {}
 pub struct Deleted<M: TableMarker> {
     pub ids: RunList<M>,
 }
-impl<M: TableMarker> Obj for Deleted<M> {}

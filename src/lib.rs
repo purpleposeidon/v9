@@ -33,9 +33,6 @@
 // - minimizing the code output by macros & generics.
 // - prefer dynamic dispatch to static dispatch.
 
-#[macro_use]
-extern crate mopa;
-
 #[allow(unused_imports)]
 #[macro_use]
 extern crate v9_attr;
@@ -93,7 +90,7 @@ pub mod prelude_lib {
     pub use crate::table::{TableHeader, TableMarker};
     pub use crate::util::*;
     pub use crate::linkage::*;
-    pub use std::any::{Any as StdAny, TypeId};
+    pub use std::any::{Any, TypeId};
     pub use std::cmp::Ordering;
     pub use std::marker::PhantomData;
     pub use std::ops::{Deref, DerefMut, Index, IndexMut, Range as StdRange};

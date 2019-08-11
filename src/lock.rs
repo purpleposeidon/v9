@@ -15,7 +15,7 @@ pub enum LockState {
 
 pub struct Locked {
     // This is stuff is public due to our 'no encapsulation' policy.
-    pub obj: UnsafeCell<Box<dyn Obj>>,
+    pub obj: UnsafeCell<Box<dyn Any>>,
     pub state: LockState,
 }
 impl fmt::Debug for Locked {
@@ -24,7 +24,7 @@ impl fmt::Debug for Locked {
     }
 }
 impl Locked {
-    pub fn new(obj: Box<dyn Obj>) -> Box<Self> {
+    pub fn new(obj: Box<dyn Any>) -> Box<Self> {
         Box::new(Locked {
             obj: UnsafeCell::new(obj),
             state: LockState::Open,
@@ -74,9 +74,9 @@ impl Locked {
         }
     }
     #[allow(clippy::borrowed_box)]
-    pub unsafe fn contents(&mut self) -> *mut dyn Obj {
-        let obj: *mut Box<dyn Obj> = self.obj.get();
-        let obj: &mut Box<dyn Obj> = &mut *obj;
+    pub unsafe fn contents(&mut self) -> *mut dyn Any {
+        let obj: *mut Box<dyn Any> = self.obj.get();
+        let obj: &mut Box<dyn Any> = &mut *obj;
         obj.deref_mut()
     }
     pub unsafe fn read(&mut self) -> GuardRef {
@@ -87,7 +87,7 @@ impl Locked {
         self.acquire(Access::Write);
         GuardMut { lock: self }
     }
-    pub fn into_inner(mut self) -> Box<dyn Obj> {
+    pub fn into_inner(mut self) -> Box<dyn Any> {
         unsafe {
             self.acquire(Access::Write);
             let stuff = self.contents();
@@ -112,31 +112,31 @@ pub struct GuardMut {
     lock: *mut Locked,
 }
 impl Deref for GuardRef {
-    type Target = dyn Obj;
+    type Target = dyn Any;
     #[allow(clippy::borrowed_box)]
-    fn deref(&self) -> &dyn Obj {
+    fn deref(&self) -> &dyn Any {
         unsafe {
             let lock: &Locked = &*self.lock;
-            let obj: *mut Box<dyn Obj> = lock.obj.get();
-            let obj: &Box<dyn Obj> = &*obj;
+            let obj: *mut Box<dyn Any> = lock.obj.get();
+            let obj: &Box<dyn Any> = &*obj;
             obj.deref()
         }
     }
 }
 impl Deref for GuardMut {
-    type Target = dyn Obj;
+    type Target = dyn Any;
     #[allow(clippy::borrowed_box)]
-    fn deref(&self) -> &dyn Obj {
+    fn deref(&self) -> &dyn Any {
         unsafe {
             let lock: &Locked = &*self.lock;
-            let obj: *mut Box<dyn Obj> = lock.obj.get();
-            let obj: &Box<dyn Obj> = &*obj;
+            let obj: *mut Box<dyn Any> = lock.obj.get();
+            let obj: &Box<dyn Any> = &*obj;
             obj.deref()
         }
     }
 }
 impl DerefMut for GuardMut {
-    fn deref_mut(&mut self) -> &mut dyn Obj {
+    fn deref_mut(&mut self) -> &mut dyn Any {
         unsafe {
             let lock: &mut Locked = &mut *self.lock;
             &mut *lock.contents()

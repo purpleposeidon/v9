@@ -8,7 +8,6 @@ pub struct TableHeader {
     pub marker: TypeId,
     pub columns: Vec<ColumnHeader>,
 }
-impl Obj for TableHeader {}
 pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::Debug {
     const NAME: Name;
     type RawId: Raw;

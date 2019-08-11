@@ -56,7 +56,7 @@ unsafe impl<E: Extract> Cleaner<E> for () {
 
 /// Helper trait.
 pub unsafe trait ExtractOwned {
-    type Ty: Obj;
+    type Ty: Any;
     const ACC: Access;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self;
 }
@@ -81,30 +81,30 @@ where
 #[derive(Debug)]
 pub struct Rez {
     // FIXME: We don't actually need 'static on this, right?
-    vals: &'static [(*mut dyn Obj, Access)],
+    vals: &'static [(*mut dyn Any, Access)],
 }
 impl Rez {
-    pub(crate) fn new(vals: &'static [(*mut dyn Obj, Access)]) -> Self {
+    pub(crate) fn new(vals: &'static [(*mut dyn Any, Access)]) -> Self {
         Rez { vals }
     }
-    pub unsafe fn take_ref<'b>(&mut self) -> &'b dyn Obj {
-        let (v, a): (*mut dyn Obj, Access) = self.vals[0];
+    pub unsafe fn take_ref<'b>(&mut self) -> &'b dyn Any {
+        let (v, a): (*mut dyn Any, Access) = self.vals[0];
         assert_eq!(a, Access::Read, "asked for Access::Write but used take_ref");
         self.vals = &self.vals[1..];
         &mut *v
     }
-    pub unsafe fn take_mut<'b>(&mut self) -> &'b mut dyn Obj {
-        let (v, a): (*mut dyn Obj, Access) = self.vals[0];
+    pub unsafe fn take_mut<'b>(&mut self) -> &'b mut dyn Any {
+        let (v, a): (*mut dyn Any, Access) = self.vals[0];
         assert_eq!(a, Access::Write, "asked for Access::Read but used take_mut");
         self.vals = &self.vals[1..];
         &mut *v
     }
-    pub unsafe fn take_ref_downcast<'b, T: Obj>(&mut self) -> &'b T {
-        let got: &Obj = self.take_ref();
+    pub unsafe fn take_ref_downcast<'b, T: Any>(&mut self) -> &'b T {
+        let got: &Any = self.take_ref();
         got.downcast_ref().unwrap()
     }
-    pub unsafe fn take_mut_downcast<'b, T: Obj>(&mut self) -> &'b mut T {
-        let got: &mut Obj = self.take_mut();
+    pub unsafe fn take_mut_downcast<'b, T: Any>(&mut self) -> &'b mut T {
+        let got: &mut Any = self.take_mut();
         got.downcast_mut().unwrap()
     }
     // FIXME: Explain why we use the 'static lie.

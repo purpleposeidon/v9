@@ -379,7 +379,6 @@ pub struct IdList<M: TableMarker> {
     outer_capacity: usize,
     // We only use SyncRef because elsehwere needs a &mut V, but this is unusable.
 }
-impl<M: TableMarker> Obj for IdList<M> {}
 impl<M: TableMarker> IdList<M> {
     #[inline]
     pub fn len(&self) -> usize {
@@ -595,7 +594,7 @@ unsafe impl<'a, M: TableMarker> ExtractOwned for &'a IdList<M> {
     type Ty = IdList<M>;
     const ACC: Access = Access::Read;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
-        let got: &Obj = rez.take_ref();
+        let got: &Any = rez.take_ref();
         got.downcast_ref().unwrap()
     }
 }

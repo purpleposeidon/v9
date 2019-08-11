@@ -3,20 +3,11 @@ use crate::prelude_lib::*;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
 use std::sync::RwLock;
+use std::any::Any;
 
 // FIXME: impl Extract for Universe.
 
 // FIXME: Implement a property wrapper. Probably called `Val` instead of `Property`.
-
-/// Essentially `Any`.
-// This is mostly here for my sanity's sake.
-// `Any::type_id()` often returns TypeId::of::<Any>().
-pub trait Obj: mopa::Any + Send + Sync {}
-#[allow(clippy::transmute_ptr_to_ref)]
-mod mopafy_for_clippy {
-    use super::Obj;
-    mopafy!(Obj);
-}
 
 #[derive(Default)]
 pub struct Universe {
@@ -42,30 +33,30 @@ impl Universe {
             MapEntry::Vacant(e) => e.insert(obj),
         };
     }
-    pub fn add<T: Obj>(&self, key: TypeId, obj: T) {
+    pub fn add<T: Any>(&self, key: TypeId, obj: T) {
         let map = &mut *self.objects.write().unwrap();
         Universe::insert(map, key, Locked::new(Box::new(obj)));
     }
-    pub fn add_mut<T: Obj>(&mut self, key: TypeId, obj: T) {
+    pub fn add_mut<T: Any>(&mut self, key: TypeId, obj: T) {
         let map = &mut *self.objects.get_mut().unwrap();
         let obj = Locked::new(Box::new(obj));
         Universe::insert(map, key, obj);
     }
-    pub fn remove<T: Obj>(&self, key: TypeId) -> Option<Box<dyn Obj>> {
+    pub fn remove<T: Any>(&self, key: TypeId) -> Option<Box<dyn Any>> {
         self.objects
             .write()
             .unwrap()
             .remove(&key)
             .map(|l| l.into_inner())
     }
-    pub fn remove_mut<T: Obj>(&mut self, key: TypeId) -> Option<Box<dyn Obj>> {
+    pub fn remove_mut<T: Any>(&mut self, key: TypeId) -> Option<Box<dyn Any>> {
         self.objects
             .get_mut()
             .unwrap()
             .remove(&key)
             .map(|l| l.into_inner())
     }
-    pub fn has<T: Obj>(&self) -> bool {
+    pub fn has<T: Any>(&self) -> bool {
         self.objects
             .read()
             .unwrap()
@@ -75,22 +66,22 @@ impl Universe {
 }
 
 impl Universe {
-    pub fn all_mut(&mut self, mut each: impl FnMut(&mut Obj)) {
+    pub fn all_mut(&mut self, mut each: impl FnMut(&mut Any)) {
         let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let mut lock = lock.write();
-                let obj: &mut Obj = &mut *lock;
+                let obj: &mut Any = &mut *lock;
                 each(obj);
             }
         }
     }
-    pub fn all_ref(&self, mut each: impl FnMut(&Obj)) {
+    pub fn all_ref(&self, mut each: impl FnMut(&Any)) {
         let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let lock = lock.read();
-                let obj: &Obj = &*lock;
+                let obj: &Any = &*lock;
                 each(obj);
             }
         }
@@ -98,28 +89,28 @@ impl Universe {
 }
 
 impl Universe {
-    pub fn clone_value<T: Obj + Clone>(&self) -> T {
+    pub fn clone_value<T: Any + Clone>(&self) -> T {
         self.with(T::clone)
     }
-    pub fn with<T: Obj, R>(&self, f: impl FnOnce(&T) -> R) -> R {
+    pub fn with<T: Any, R>(&self, f: impl FnOnce(&T) -> R) -> R {
         self.with_obj(TypeId::of::<T>(), |obj| {
             let obj = obj.downcast_ref().expect("type mismatch");
             f(obj)
         })
     }
-    pub fn with_mut<T: Obj, R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+    pub fn with_mut<T: Any, R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         self.with_obj_mut(TypeId::of::<T>(), |obj| {
             let obj = obj.downcast_mut().expect("type mismatch");
             f(obj)
         })
     }
-    pub fn with_obj<R>(&self, ty: TypeId, f: impl FnOnce(&dyn Obj) -> R) -> R {
+    pub fn with_obj<R>(&self, ty: TypeId, f: impl FnOnce(&dyn Any) -> R) -> R {
         self.with_access(ty, Access::Read, move |obj| unsafe {
             let obj = &*obj;
             f(obj)
         })
     }
-    pub fn with_obj_mut<R>(&self, ty: TypeId, f: impl FnOnce(&mut dyn Obj) -> R) -> R {
+    pub fn with_obj_mut<R>(&self, ty: TypeId, f: impl FnOnce(&mut dyn Any) -> R) -> R {
         self.with_access(ty, Access::Write, move |obj| unsafe {
             let obj = &mut *obj;
             f(obj)
@@ -129,7 +120,7 @@ impl Universe {
         &self,
         ty: TypeId,
         access: Access,
-        f: impl FnOnce(*mut dyn Obj) -> R,
+        f: impl FnOnce(*mut dyn Any) -> R,
     ) -> R {
         loop {
             let mut objects = self.objects.write().unwrap();
@@ -158,8 +149,6 @@ impl Universe {
 mod test {
     use super::*;
     use std::fmt::Write;
-
-    impl Obj for String {}
 
     unsafe impl<'a> Extract for &'a mut String {
         fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
@@ -354,8 +343,6 @@ pub trait Register {
     fn register(universe: &mut Universe);
 }
 
-impl Obj for Universe {}
-
 /// Using this could wreck havoc on schedulers, if you use them.
 // Which is why we don't just impl Extract for &Universe.
 #[repr(transparent)]
@@ -368,7 +355,6 @@ impl<'a> Deref for UniverseRef<'a> {
     type Target = Universe;
     fn deref(&self) -> &Universe { self.universe }
 }
-impl Obj for UniverseRef<'static> {}
 unsafe impl<'a> Extract for UniverseRef<'a> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = ();

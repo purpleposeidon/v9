@@ -115,7 +115,6 @@ macro_rules! decl_property {
                     $crate::decl_property!(@if $local_type);
                     pub type Prop = Type;
                     use self::init_fn as localized_init_fn;
-                    impl Obj for Prop {}
                     unsafe impl Property for Prop {
                         // FIXME: Boy does this feel dirty!
                         // Like, you've given me this thing...
@@ -177,12 +176,11 @@ macro_rules! decl_property {
         impl DerefMut for Prop {
             fn deref_mut(&mut self) -> &mut Type { &mut self.inner }
         }
-        impl Obj for Prop {}
         unsafe impl Property for Prop {}
     };
 }
 
-pub unsafe trait Property: Obj {}
+pub unsafe trait Property: Any {}
 unsafe impl<'a, X: Property> ExtractOwned for &'a X {
     type Ty = X;
     const ACC: Access = Access::Read;
@@ -200,7 +198,7 @@ unsafe impl<'a, X: Property> ExtractOwned for &'a mut X {
 
 #[doc(hidden)]
 pub mod prelude {
-    pub use crate::prelude_lib::{Deref, DerefMut, Name, Obj, TypeId, Universe};
+    pub use crate::prelude_lib::{Deref, DerefMut, Name, Any, TypeId, Universe};
     pub use crate::prelude_lib::{Property, PropertyHeader, PropertyMarker, Register};
 
     #[doc(hidden)]

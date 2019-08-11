@@ -9,9 +9,9 @@ impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
         self.run_return::<()>(kernel)
     }
-    pub fn run_return<Ret: StdAny>(&self, kernel: &mut Kernel) -> Ret {
+    pub fn run_return<Ret: Any>(&self, kernel: &mut Kernel) -> Ret {
         let mut ret: Option<Ret> = None;
-        self.run_and_return_into(kernel, (&mut ret) as &mut StdAny);
+        self.run_and_return_into(kernel, (&mut ret) as &mut Any);
         ret.expect("return value not set")
     }
     pub unsafe fn prepare_buffer(&self, buffer: &mut LockBuffer) {
@@ -36,17 +36,17 @@ impl Universe {
             for &mut (lock, acc) in locks {
                 let lock: &mut Locked = &mut *lock;
                 lock.acquire(acc);
-                let obj: *mut dyn Obj = lock.contents();
-                let obj: &mut dyn Obj = &mut *obj;
-                let obj: *mut dyn Obj = obj;
+                let obj: *mut dyn Any = lock.contents();
+                let obj: &mut dyn Any = &mut *obj;
+                let obj: *mut dyn Any = obj;
                 vals.push((obj, acc));
             }
             break;
         }
     }
-    pub unsafe fn execute_from_buffer<F>(&self, buffer: &mut LockBuffer, func: F, return_value: &mut StdAny)
+    pub unsafe fn execute_from_buffer<F>(&self, buffer: &mut LockBuffer, func: F, return_value: &mut Any)
     where
-        F: FnOnce(&Universe, Rez, &mut StdAny, &mut dyn FnMut()),
+        F: FnOnce(&Universe, Rez, &mut Any, &mut dyn FnMut()),
     {
         let rez = Rez::new(mem::transmute(&buffer.vals[..]));
         let resources = &buffer.resources;
@@ -67,7 +67,7 @@ impl Universe {
         buffer.vals.clear();
         unwind.unwrap_or_else(|e| panic::resume_unwind(e));
     }
-    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut StdAny) {
+    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut Any) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
             self.prepare_buffer(&mut kernel.buffer);
@@ -84,7 +84,7 @@ impl Universe {
             let mut buffer = LockBuffer::new::<Dump, Ret, K>();
             self.prepare_buffer(&mut buffer);
             let ret = Cell::new(Option::<Ret>::None);
-            let run = |universe: &Universe, rez: Rez, _ret: &mut StdAny, cleanup: &mut dyn FnMut()| {
+            let run = |universe: &Universe, rez: Rez, _ret: &mut Any, cleanup: &mut dyn FnMut()| {
                 let got = k.run(universe, rez, cleanup);
                 ret.set(Some(got));
             };
@@ -105,7 +105,7 @@ impl Universe {
     }
     pub fn kmap_return<Ret, Dump, K>(&self, k: K) -> Ret
     where
-        Ret: StdAny,
+        Ret: Any,
         K: KernelFn<Dump, Ret>,
         K: 'static + Send + Sync,
         Dump: Send + Sync,
@@ -139,14 +139,15 @@ pub unsafe trait EachResource<Dump, Ret> {
 }
 
 /// Works like a `Box<KernelFn>`.
+#[must_use]
 pub struct Kernel {
-    run: Box<dyn FnMut(&Universe, Rez, &mut StdAny, &mut dyn FnMut()) + 'static + Send + Sync>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut Any, &mut dyn FnMut()) + 'static + Send + Sync>,
     buffer: LockBuffer,
 }
 pub struct LockBuffer {
     resources: Vec<(TypeId, Access)>,
     locks: Vec<(*mut Locked, Access)>,
-    vals: Vec<(*mut dyn Obj, Access)>,
+    vals: Vec<(*mut dyn Any, Access)>,
 }
 impl LockBuffer {
     pub fn new<Dump, Ret, K>() -> Self
@@ -200,7 +201,7 @@ unsafe impl Sync for LockBuffer {}
 impl Kernel {
     pub fn new<Dump, Ret, K>(mut k: K) -> Self
     where
-        Ret: StdAny,
+        Ret: Any,
         K: KernelFn<Dump, Ret>,
         K: 'static + Send + Sync,
         Dump: Send + Sync,
@@ -217,13 +218,17 @@ impl Kernel {
     }
     /// A kernel may have arguments that the `Universe` doesn't know about.
     /// Any such arguments must be at the front of the parameter list,
-    /// and must be pushed in the correct order.
-    pub fn push_arg(&mut self, obj: &dyn Obj) {
-        let obj = obj as *const dyn Obj as *mut dyn Obj;
+    /// and must be pushed in the same order as the parameters.
+    /// The parameters themselves must be wrapped in `KernelArg<&T>`.
+    /// So, the kernel's parameters must start with `|t: KernelArg<&T>, m: KernelArg<&mut M>|`,
+    /// and they are given to the kernel by doing
+    /// `kernel.push_arg(&t); kernel.push_arg_mut(&mut m)`.
+    pub fn push_arg(&mut self, obj: &dyn Any) {
+        let obj = obj as *const dyn Any as *mut dyn Any;
         self.buffer.vals.push((obj, Access::Read));
     }
-    pub fn push_arg_mut(&mut self, obj: &mut dyn Obj) {
-        let obj = obj as *mut dyn Obj;
+    pub fn push_arg_mut(&mut self, obj: &mut dyn Any) {
+        let obj = obj as *mut dyn Any;
         self.buffer.vals.push((obj, Access::Write));
     }
     pub fn clear_args(&mut self) {
@@ -236,7 +241,7 @@ impl Kernel {
 pub struct KernelArg<T> {
     val: T,
 }
-unsafe impl<'a, T: Obj> Extract for KernelArg<&'a T> {
+unsafe impl<'a, T: Any> Extract for KernelArg<&'a T> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = &'a T;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
@@ -247,7 +252,7 @@ unsafe impl<'a, T: Obj> Extract for KernelArg<&'a T> {
     }
     type Cleanup = ();
 }
-unsafe impl<'a, T: Obj> Extract for KernelArg<&'a mut T> {
+unsafe impl<'a, T: Any> Extract for KernelArg<&'a mut T> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = &'a mut T;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
