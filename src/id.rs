@@ -449,6 +449,13 @@ impl<M: TableMarker> IdList<M> {
     pub fn delete_extend(&mut self, i: impl Iterator<Item=Id<M>>) {
         self.deleting.get_mut().extend(i);
     }
+    pub fn delete_extend_ranges(&mut self, i: impl Iterator<Item=RangeInclusive<Id<M>>>) {
+        let deleting = self.deleting.get_mut();
+        deleting.data.reserve(i.size_hint().0);
+        for run in i {
+            deleting.push_run(run);
+        }
+    }
     #[inline]
     pub fn removing(&mut self) -> ListRemoving<'static, M> {
         // NB: This is unsound. This is done intentionally.
