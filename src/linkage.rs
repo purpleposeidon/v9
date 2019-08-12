@@ -36,6 +36,14 @@ impl<M: TableMarker, T: Ord + Clone> ColumnIndex<M, T> {
             .map(|((_, i), _)| *i)
 
     }
+    pub fn between(low: T, high: T) -> StdRange<(T, Id<M>)> {
+        (low, Id(M::RawId::ZERO))..(high, Id(M::RawId::LAST))
+    }
+    pub fn range<'a>(&'a self, low: T, high: T) -> impl DoubleEndedIterator<Item=Id<M>> + 'a {
+        self.map
+            .range(Self::between(low, high))
+            .map(|((_, i), _)| *i)
+    }
 }
 impl<M: TableMarker, T: Ord> Default for ColumnIndex<M, T> {
     fn default() -> Self {
