@@ -46,7 +46,7 @@ fn test() {
     universe.run(dump);
     {
         println!("Delete the first character, 'b'");
-        universe.kmap(|chars: char_list::List| {
+        universe.kmap(|chars: &mut char_list::Ids| {
             chars.removing().next().unwrap().remove();
         });
         universe.run(dump);
@@ -60,7 +60,7 @@ fn test() {
     }
     {
         println!("Deleting the last name.");
-        universe.kmap(|names: names::List| {
+        universe.kmap(|names: &mut names::Ids| {
             for i in names.removing().skip(1) {
                 i.remove();
                 break;

@@ -160,7 +160,7 @@ mod test_tracking {
         });
         println!("\nDeleting...");
         universe.kmap(
-            |ships: ships::List, names: ships::read::name, weight: ships::read::weight| {
+            |ships: &mut ships::Ids, names: ships::read::name, weight: ships::read::weight| {
                 let mut sunk = false;
                 for f in ships.removing() {
                     if weight[f] == 20 {

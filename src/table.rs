@@ -521,8 +521,8 @@ macro_rules! decl_table {
                     // However that's probably the only usage.
                     // If we abandon the "most stuff is public" policy, this'd be a good candidate for hiding.
                     $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
-                    /// Lists valid IDs.
-                    pub type __V9__Iter<'a> = &'a mut $crate::prelude_macro::IdList<super::super::in_v9::Marker>;
+                    #[doc(hidden)]
+                    pub type __V9__Iter<'a> = &'a mut super::super::in_v9::Ids;
                     $crate::decl_context! {
                         /// Structural access to the table. You can push or delete rows. However,
                         /// existing elements can not be modified.
@@ -534,7 +534,6 @@ macro_rules! decl_table {
                     }
                 }
                 pub use self::write::__Write as Write;
-                pub use self::write::__V9__Iter as List;
             }
             pub use self::in_v9::*;
             pub use self::in_user::*;
