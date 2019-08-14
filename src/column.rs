@@ -3,6 +3,7 @@
 use crate::event::*;
 use crate::prelude_lib::*;
 use std::hint::unreachable_unchecked;
+use crate::linkage::LiftColumn;
 
 #[derive(Debug)]
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -31,8 +32,17 @@ impl<M: TableMarker, T> Column<M, T> {
     #[inline(always)] pub fn set_data(&mut self, d: Vec<T>) { self.data = d }
 }
 
+pub type FastEdit<'a, C> = FastEditColumn<
+    'a,
+    <C as LiftColumn>::M,
+    <C as LiftColumn>::T,
+>;
+
 pub struct ReadColumn<'a, M: TableMarker, T> {
     pub col: &'a Column<M, T>,
+}
+pub struct FastEditColumn<'a, M: TableMarker, T> {
+    col: &'a mut Column<M, T>,
 }
 /// You can change the values in this column, but not the length.
 /// Changes may be logged. Because of this, you must access items in increasing order.
@@ -64,6 +74,29 @@ where
         unsafe {
             let i = i.check_from_len(PhantomData, self.col.data.len());
             self.col.data.get_unchecked(i.to_usize())
+        }
+    }
+}
+impl<'a, 'b, I, M: TableMarker, T> Index<I> for FastEditColumn<'a, M, T>
+where
+    I: 'b + Check<M = M>,
+{
+    type Output = T;
+    fn index(&self, i: I) -> &T {
+        unsafe {
+            let i = i.check_from_len(PhantomData, self.col.data.len());
+            self.col.data.get_unchecked(i.to_usize())
+        }
+    }
+}
+impl<'a, 'b, I, M: TableMarker, T> IndexMut<I> for FastEditColumn<'a, M, T>
+where
+    I: 'b + Check<M = M>,
+{
+    fn index_mut(&mut self, i: I) -> &mut T {
+        unsafe {
+            let i = i.check_from_len(PhantomData, self.col.data.len());
+            self.col.data.get_unchecked_mut(i.to_usize())
         }
     }
 }
@@ -150,6 +183,21 @@ where
         let obj: &'static dyn Any = rez.take_ref();
         ReadColumn {
             col: obj.downcast_ref().unwrap(),
+        }
+    }
+}
+unsafe impl<'a, M, T: Send + Sync> ExtractOwned for FastEditColumn<'a, M, T>
+where
+    M: TableMarker,
+    T: 'static,
+{
+    type Ty = Column<M, T>;
+    const ACC: Access = Access::Write;
+    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self {
+        let obj: &'static mut dyn Any = rez.take_mut();
+        assert!(!universe.is_tracked::<Edited<M, T>>(), "FastEditColumn used on a tracked column");
+        FastEditColumn {
+            col: obj.downcast_mut().unwrap(),
         }
     }
 }
