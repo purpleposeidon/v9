@@ -18,6 +18,7 @@ remove abs path requirement on tables
 Add "ImmediateEdit" so you can say `Immediate<my_table::edit::Foo>`. It would allow editing a column without there being any question of logging. This would maybe allow some sweet SIMD optimizations or something. It would have to assert, during Extract, that there were no trackers.
 impl Extract for T where T: Property + Copy
 Delete 'kmap'; eval's better.
+s/remove/delete. The distinction isn't helpful.
 
 # Consistency/Ordering Issue
 We acquire a bunch of locks.
@@ -33,7 +34,12 @@ Some events need to be submitted to maintain data consistency
         * How 'bout this. ThreadId. Only the current thread can acquire locks.
 - They can release locks if they like.
 
+It would be nice to have a way to indicate a bi-directional dependency.
+    - Deleting the foreign row deletes the local row.
+    - We might want the reverse to happen also.
+
 # Uhm
 We should make it so that you have the option of that, when you call 'remove' on something, if it's got linkage, it also removes the foreign table?
     Maybe you should just delete from the foreign table instead?
 Mark Column::push as unsafe.
+Isn't kernel.rs/fn prepare_buffer supposed to, y'know, not spin infinitely while waiting!?

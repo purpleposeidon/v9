@@ -371,7 +371,7 @@ impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct IdList<M: TableMarker> {
     pub free: RunList<M>,
     pushing: RunList<M>,
@@ -382,7 +382,11 @@ pub struct IdList<M: TableMarker> {
 impl<M: TableMarker> IdList<M> {
     #[inline]
     pub fn len(&self) -> usize {
-        self.outer_capacity - self.free.len()
+        let free_len = self.free.len();
+        if cfg!(test) {
+            assert_eq!(free_len, self.free.iter().count());
+        }
+        self.outer_capacity - free_len
     }
     #[inline]
     pub fn outer_capacity(&self) -> usize { self.outer_capacity }
@@ -618,8 +622,8 @@ unsafe impl<'a, M: TableMarker> Extract for &'a mut IdList<M> {
     }
     type Cleanup = IdListCleanup;
 }
-const TRACK_PUSH: u8 = 1;
-const TRACK_DELETE: u8 = 2;
+pub const TRACK_PUSH: u8 = 1;
+pub const TRACK_DELETE: u8 = 2;
 #[doc(hidden)]
 pub struct IdListCleanup {
     tracked_events: u8,
@@ -771,10 +775,20 @@ impl<M: TableMarker> fmt::Debug for RunList<M> {
     }
 }
 impl<M: TableMarker> RunList<M> {
+    #[inline(always)]
+    fn validate(&self) {
+        if cfg!(test) {
+            let actual = self.iter().count();
+            if actual != self.len {
+                panic!("bad");
+            }
+        }
+    }
     #[inline]
     pub fn len(&self) -> usize { self.len }
     pub fn is_empty(&self) -> bool { self.iter().next().is_none() }
     pub fn push(&mut self, i: Id<M>) {
+        self.validate();
         self.len += 1;
         // (a < b) --> a..=b
         // (a = b) --> [a]
@@ -800,6 +814,9 @@ impl<M: TableMarker> RunList<M> {
                         (i, a)
                     } else if i > a {
                         (i, a)
+                    } else if a == i {
+                        self.len -= 1;
+                        (a, a)
                     } else {
                         (a, i)
                     }
@@ -825,6 +842,7 @@ impl<M: TableMarker> RunList<M> {
                     // All these items are separate.
                     // OR ARE THEY? 0,1 might merge. And 1,2 might merge. And 0,1,2 might merge
                     // also.
+                    // Another issue: If we have [8, 8, 14], then self.len is wrong.
                     if s[0].step(1) == s[1] {
                         if s[1].step(1) == s[2] {
                             // Filled in a hole.
@@ -836,6 +854,10 @@ impl<M: TableMarker> RunList<M> {
                     } else if s[1].step(1) == s[2] {
                         self.data.push((s[0], s[0]));
                         (s[1], s[2])
+                    } else if s[0] == s[1] || s[1] == s[2] {
+                        // Nothing happened.
+                        self.len -= 1;
+                        (s[2], s[0])
                     } else {
                         self.data.push((s[1], s[0]));
                         (s[2], s[2])
@@ -846,8 +868,10 @@ impl<M: TableMarker> RunList<M> {
             (i, i)
         };
         self.data.push(new);
+        self.validate();
     }
     pub fn push_run(&mut self, r: RangeInclusive<Id<M>>) {
+        self.validate();
         // FIXME: if r.is_empty() { return; }
         let l = *r.start();
         let h = *r.end();
@@ -866,9 +890,11 @@ impl<M: TableMarker> RunList<M> {
             // No immediate benefit to this atm.
         }
         self.data.push((l, h));
+        self.validate();
     }
     pub fn pop(&mut self) -> Option<Id<M>> {
-        if let Some((a, b)) = self.data.pop() {
+        self.validate();
+        let r = if let Some((a, b)) = self.data.pop() {
             self.len -= 1;
             Some(match a.cmp(&b) {
                 Ordering::Greater => {
@@ -883,7 +909,9 @@ impl<M: TableMarker> RunList<M> {
             })
         } else {
             None
-        }
+        };
+        self.validate();
+        r
     }
     pub fn last(&self) -> Option<Id<M>> {
         if let Some((a, b)) = self.data.last().cloned() {
@@ -897,8 +925,10 @@ impl<M: TableMarker> RunList<M> {
         }
     }
     pub fn clear(&mut self) {
+        self.validate();
         self.len = 0;
         self.data.clear();
+        self.validate();
     }
     pub fn iter(&self) -> RunListIter<M> {
         self.into_iter()
@@ -906,11 +936,13 @@ impl<M: TableMarker> RunList<M> {
     pub fn extend_from(&mut self, new: Self) {
         self.data.extend(new.data);
         self.len += new.len;
+        self.validate();
     }
     pub fn extend(&mut self, iter: impl Iterator<Item=Id<M>>) {
         for id in iter {
             self.push(id);
         }
+        self.validate();
     }
     pub fn iter_runs<'a>(&'a self) -> impl Iterator<Item=RangeInclusive<Id<M>>> + 'a {
         struct Iter<'a, M: TableMarker> {
@@ -951,6 +983,7 @@ impl<M: TableMarker> RunList<M> {
         for run in runs.into_iter() {
             self.push_run(run);
         }
+        self.validate();
     }
     // FIXME: fn compact(&mut self);
     // FIXME: fn merge(&mut self, other: &Self);
@@ -1142,5 +1175,48 @@ mod test_run_list {
         let mut it = l.iter();
         assert_eq!(it.next(), Some(Id(0)));
         assert_eq!(it.next(), None);
+    }
+
+    #[test]
+    fn id_list() {
+        unsafe {
+            for x in 1..5 {
+                for y in 1..x {
+                    let mut l = IdList::<M>::default();
+                    let u = &Universe::new();
+                    l.flush(u, 0);
+                    fn r<R>(r: Result<R, R>) -> R {
+                        match r {
+                            Ok(r) => r,
+                            Err(r) => r,
+                        }
+                    }
+                    let mut pushed = vec![];
+                    for _ in 0..x {
+                        let id = r(l.recycle_id());
+                        pushed.push(id);
+                        l.len();
+                    }
+                    l.len();
+                    l.flush(u, 0);
+                    for _ in 0..y {
+                        if let Some(id) = pushed.pop() {
+                            l.delete(id);
+                            l.len();
+                        }
+                    }
+                    l.flush(u, 0);
+                    l.len();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn thing() {
+        let mut l = RunList::<M>::default();
+        l.push(Id(8));
+        l.push(Id(14));
+        l.push(Id(8));
     }
 }
