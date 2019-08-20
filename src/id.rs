@@ -428,7 +428,9 @@ impl<M: TableMarker> IdList<M> {
         // Merging together two sorted runs is the typical case.
         // Theoretically, an unstable sort will be slower in this case,
         // but I haven't tested this.
-        self.free.data.extend(self.deleting.get_mut().data.drain());
+        let deleting = self.deleting.get_mut();
+        deleting.len = 0;
+        self.free.data.extend(deleting.data.drain());
         self.free.sort();
         // We could implement this in a better way by merging back-to-front.
         // We'd extend `free` with !0's, merge backwards.
@@ -780,7 +782,7 @@ impl<M: TableMarker> RunList<M> {
         if cfg!(test) {
             let actual = self.iter().count();
             if actual != self.len {
-                panic!("bad");
+                panic!("bad RunList.\nlen={}\ndata={:?}\nraw={:?}", self.len, self, self.data);
             }
         }
     }
@@ -980,6 +982,7 @@ impl<M: TableMarker> RunList<M> {
         runs.sort_by_key(|run| *run.start());
         self.data.clear();
         self.data.reserve(runs.len());
+        self.len = 0;
         for run in runs.into_iter() {
             self.push_run(run);
         }
@@ -1218,5 +1221,45 @@ mod test_run_list {
         l.push(Id(8));
         l.push(Id(14));
         l.push(Id(8));
+    }
+
+    #[test]
+    fn dude() {
+        unsafe {
+            let mut l = IdList::<M>::default();
+            let u = &Universe::new();
+            l.flush(u, 0);
+            fn r<R>(r: Result<R, R>) -> R {
+                match r {
+                    Ok(r) => r,
+                    Err(r) => r,
+                }
+            }
+            println!("\npush");
+            let a = r(l.recycle_id());
+            { l.len(); l.flush(u, 0); l.len(); }
+
+            println!("\ndelete");
+            l.delete(a);
+            { l.len(); l.flush(u, 0); l.len(); }
+
+            println!("\nresurect");
+            let a2 = r(l.recycle_id());
+            { l.len(); l.flush(u, 0); l.len(); }
+            assert_eq!(a, a2);
+
+            println!("\ndelete");
+            l.delete(a2);
+            { l.len(); l.flush(u, 0); l.len(); }
+        }
+    }
+
+    #[test]
+    fn dude2() {
+        let mut l = RunList::<M>::default();
+        l.push(Id(0));
+        l.pop();
+        l.push(Id(0));
+        l.pop();
     }
 }
