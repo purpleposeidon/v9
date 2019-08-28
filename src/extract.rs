@@ -100,11 +100,11 @@ impl Rez {
         &mut *v
     }
     pub unsafe fn take_ref_downcast<'b, T: Any>(&mut self) -> &'b T {
-        let got: &Any = self.take_ref();
+        let got: &dyn Any = self.take_ref();
         got.downcast_ref().unwrap()
     }
     pub unsafe fn take_mut_downcast<'b, T: Any>(&mut self) -> &'b mut T {
-        let got: &mut Any = self.take_mut();
+        let got: &mut dyn Any = self.take_mut();
         got.downcast_mut().unwrap()
     }
     // FIXME: Explain why we use the 'static lie.

@@ -3,7 +3,7 @@
 use crate::column::Column;
 use crate::prelude_lib::*;
 
-pub type Handler<E> = Box<FnMut(&Universe, &mut E) + Send + Sync>;
+pub type Handler<E> = Box<dyn FnMut(&Universe, &mut E) + Send + Sync>;
 
 /// Event handlers for an event `E`.
 // FIXME: Events should use RunIter.
@@ -51,7 +51,7 @@ impl Universe {
     pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &mut E) + 'static + Send + Sync>(&self, f: F) {
         self.add_tracker_box(Box::new(f))
     }
-    fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<FnMut(&Universe, &mut E) + Send + Sync>) {
+    fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<dyn FnMut(&Universe, &mut E) + Send + Sync>) {
         // Can't use with() because object may not exist.
         let ty = TypeId::of::<Tracker<E>>();
         let mut objects = self.objects.write().unwrap();

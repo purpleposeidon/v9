@@ -608,7 +608,7 @@ unsafe impl<'a, M: TableMarker> ExtractOwned for &'a IdList<M> {
     type Ty = IdList<M>;
     const ACC: Access = Access::Read;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
-        let got: &Any = rez.take_ref();
+        let got: &dyn Any = rez.take_ref();
         got.downcast_ref().unwrap()
     }
 }

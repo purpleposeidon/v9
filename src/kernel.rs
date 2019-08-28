@@ -11,7 +11,7 @@ impl Universe {
     }
     pub fn run_return<Ret: Any>(&self, kernel: &mut Kernel) -> Ret {
         let mut ret: Option<Ret> = None;
-        self.run_and_return_into(kernel, (&mut ret) as &mut Any);
+        self.run_and_return_into(kernel, (&mut ret) as &mut dyn Any);
         ret.expect("return value not set")
     }
     pub unsafe fn prepare_buffer(&self, buffer: &mut LockBuffer) {
@@ -44,9 +44,9 @@ impl Universe {
             break;
         }
     }
-    pub unsafe fn execute_from_buffer<F>(&self, buffer: &mut LockBuffer, func: F, return_value: &mut Any)
+    pub unsafe fn execute_from_buffer<F>(&self, buffer: &mut LockBuffer, func: F, return_value: &mut dyn Any)
     where
-        F: FnOnce(&Universe, Rez, &mut Any, &mut dyn FnMut()),
+        F: FnOnce(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()),
     {
         let rez = Rez::new(mem::transmute(&buffer.vals[..]));
         let resources = &buffer.resources;
@@ -67,7 +67,7 @@ impl Universe {
         buffer.vals.clear();
         unwind.unwrap_or_else(|e| panic::resume_unwind(e));
     }
-    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut Any) {
+    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn Any) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
             self.prepare_buffer(&mut kernel.buffer);
@@ -84,7 +84,7 @@ impl Universe {
             let mut buffer = LockBuffer::new::<Dump, Ret, K>();
             self.prepare_buffer(&mut buffer);
             let ret = Cell::new(Option::<Ret>::None);
-            let run = |universe: &Universe, rez: Rez, _ret: &mut Any, cleanup: &mut dyn FnMut()| {
+            let run = |universe: &Universe, rez: Rez, _ret: &mut dyn Any, cleanup: &mut dyn FnMut()| {
                 let got = k.run(universe, rez, cleanup);
                 ret.set(Some(got));
             };
@@ -141,7 +141,7 @@ pub unsafe trait EachResource<Dump, Ret> {
 /// Works like a `Box<KernelFn>`.
 #[must_use]
 pub struct Kernel {
-    run: Box<dyn FnMut(&Universe, Rez, &mut Any, &mut dyn FnMut()) + 'static + Send + Sync>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()) + 'static + Send + Sync>,
     buffer: LockBuffer,
 }
 pub struct LockBuffer {

@@ -345,7 +345,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
 /// Holds a bunch of `RunList`s.
 #[derive(Debug, Default)]
 pub struct Selection {
-    pub seen: HashMap<TypeId, Box<Any + Send + Sync>>,
+    pub seen: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
     pub selection_order: Vec<TypeId>,
 }
 impl Selection {
@@ -358,7 +358,7 @@ impl Selection {
         let ty = TypeId::of::<M>();
         self.seen.remove(&ty)
             .and_then(|a| {
-                (a as Box<Any>).downcast().ok()
+                (a as Box<dyn Any>).downcast().ok()
             })
             .unwrap_or_else(Default::default)
     }
@@ -369,7 +369,7 @@ impl Selection {
     }
     pub fn from<FM: TableMarker>(sel: RunList<FM>) -> Self {
         let mut seen = HashMap::new();
-        seen.insert(TypeId::of::<FM>(), Box::new(sel) as Box<Any + Send + Sync>);
+        seen.insert(TypeId::of::<FM>(), Box::new(sel) as Box<dyn Any + Send + Sync>);
         Selection { seen, selection_order: vec![] }
     }
     pub fn add_stub<T: Any>(&mut self) {

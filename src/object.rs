@@ -66,22 +66,22 @@ impl Universe {
 }
 
 impl Universe {
-    pub fn all_mut(&mut self, mut each: impl FnMut(&mut Any)) {
+    pub fn all_mut(&mut self, mut each: impl FnMut(&mut dyn Any)) {
         let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let mut lock = lock.write();
-                let obj: &mut Any = &mut *lock;
+                let obj: &mut dyn Any = &mut *lock;
                 each(obj);
             }
         }
     }
-    pub fn all_ref(&self, mut each: impl FnMut(&Any)) {
+    pub fn all_ref(&self, mut each: impl FnMut(&dyn Any)) {
         let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let lock = lock.read();
-                let obj: &Any = &*lock;
+                let obj: &dyn Any = &*lock;
                 each(obj);
             }
         }
