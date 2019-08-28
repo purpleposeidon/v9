@@ -273,6 +273,7 @@ impl<'a, I: Check> IdRange<'a, I> {
         let end = self.end.to_raw().to_usize();
         end - start
     }
+    pub fn is_empty(&self) -> bool { self.start == self.end }
     pub fn offset(&self, i: usize) -> Option<I> {
         unsafe {
             if i >= self.len() {
