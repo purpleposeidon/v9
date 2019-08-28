@@ -3,6 +3,9 @@ name = "v9-attr"
 version = "0.1.0"
 authors = ["neptunepink <purpleposeidon@gmail.com>"]
 edition = "2018"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/purpleposeidon/v9"
+description = "Procedural macros for v9."
 
 [lib]
 proc-macro = true
