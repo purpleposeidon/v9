@@ -227,7 +227,7 @@ macro_rules! decl_table {
                 pub type Id = IdV9<Marker>;
                 /// A contiguous range of `Id`s on this table.
                 pub type Range = IdRange<'static, Id>;
-                /// The valid IDs. Kernels should take this by reference. Prefer using `List`.
+                /// The valid IDs. Kernels should take this by reference.
                 pub type Ids = IdList<Marker>;
                 /// A 'pre-checked' index into the table. This index is known to be within the
                 /// array bounds.
