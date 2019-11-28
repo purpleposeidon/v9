@@ -10,10 +10,14 @@ crate docs: s/map/run
 we can remove universe.kmap() now that we have eval().
 the firewall in table! can probably go away now that we have the 'mod types'
 
+
 crate::macro_prelude
  -> crate::tables::prelude
 
 remove abs path requirement on tables
+column::set_data() should be unsafe, and its fields should be private, and it should have an unsafe constructor.
+    But OTOH, there's also Serde, sooooo....
+    Oh! But our columns are usually wrapped in WriteColumn or w/e, so maybe that could make it nicer...
 
 Add "ImmediateEdit" so you can say `Immediate<my_table::edit::Foo>`. It would allow editing a column without there being any question of logging. This would maybe allow some sweet SIMD optimizations or something. It would have to assert, during Extract, that there were no trackers.
 impl Extract for T where T: Property + Copy
@@ -43,3 +47,30 @@ We should make it so that you have the option of that, when you call 'remove' on
     Maybe you should just delete from the foreign table instead?
 Mark Column::push as unsafe.
 Isn't kernel.rs/fn prepare_buffer supposed to, y'know, not spin infinitely while waiting!?
+
+# Yeah
+We need a 'kernel mask' feature. A kernel can provide a HashMap<TypeId, TypeId>. The items would be (Plane, PreviewOf<Plane>), but the value of PreviewOf<Plane> would be just Plane. This takes advantage of the fact that HashMap<TypeId, Box<Any>> can have a mismatch between the key and the type_id of the value. It's just a single layer of indirection. Also we might just use a flat Vec<(TypeId, TypeId)>, instead of HashMap.
+    - But the idea is that we want to be able to run Kernels without having to know that a mask's been set.
+
+# ... Yeah!
+So we have a universe, but we might want to create a universe that's the same, but like "oh plane is a different dimension".
+What we do is we have a ThreadLocal<Variant>. Variant can be a TypeId or a UUID. When we look up some T:TypeId, we first look for `T ^ variant` for each variant mask.
+Maybe Variant is an AtomicU64.
+Have `known_variants: Vec<u64>`. Check for hash collisions.
+    Maybe our HashMap<TypeId, Any> should be HashMap<Variant, Any>; and impl From<TypeId> for Variant.
+    Likely good idea, hmm? :D
+    HashMap<Variant, Cow<str>>; gives a description of every variant.
+    We say "key variant" and "mask variant"
+    Variant::new_dynamic() uses RNG to create one w/o a TypeId; useful for eg multiple dimensions.
+    Universe::push_mask(Variant)?
+        Vec or singleton, hmm?
+
+
+# documentation
+[package.metadata.docs.rs]
+features = [ "feature1", "feature2" ]
+all-features = true
+no-default-features = true
+default-target = "x86_64-unknown-linux-gnu"
+rustc-args = [ "--example-rustc-arg" ]
+rustdoc-args = [ "--example-rustdoc-arg" ]
