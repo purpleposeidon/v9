@@ -89,7 +89,7 @@ fn main() {
     let run = Arc::try_unwrap(run0).unwrap().into_inner().unwrap();
     let mut ev = Select::from(run);
     universe.submit_event(&mut ev);
-    println!("{:?}", ev.selection);
-    println!("{:?}", ev.selection.get::<kingdom::Marker>().unwrap());
-    println!("{:?}", ev.selection.get::<person::Marker>().unwrap());
+    dbg!(&ev.selection);
+    dbg!(&ev.selection.get::<kingdom::Marker>());
+    dbg!(&ev.selection.get::<person::Marker>());
 }

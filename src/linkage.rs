@@ -341,7 +341,7 @@ impl Selection {
             })
             .unwrap_or_else(Default::default)
     }
-    fn deliver<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
+    fn deliver_ids<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
         let ty = TypeId::of::<M>();
         debug_assert!(!self.excluded(ty));
         self.seen.insert(ty, ids);
@@ -383,7 +383,7 @@ impl<FM: TableMarker> Select<FM> {
     pub fn deliver<LM: TableMarker>(&mut self, universe: &Universe, ids: Box<RunList<LM>>) {
         if self.selection.excluded(TypeId::of::<LM>()) { return; }
         if !universe.is_tracked::<Select<LM>>() { return; }
-        self.selection.deliver(ids);
+        self.selection.deliver_ids(ids);
         let mut sub: Select<LM> = Default::default();
         mem::swap(&mut sub.selection, &mut self.selection);
         universe.submit_event(&mut sub);
