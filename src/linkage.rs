@@ -4,7 +4,7 @@ use crate::event::*;
 use crate::kernel::{Kernel, KernelArg, KernelFn};
 use crate::prelude_lib::*;
 use crate::id::IdRange;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::any::{Any, TypeId};
 use std::mem;
 
@@ -217,7 +217,6 @@ impl<FM: TableMarker> Id<FM> {
                 }
             },
         );
-        let mut is_tracked: Option<bool> = None;
         universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
             move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: UniverseRef| {
                 // 8. Push the local ids of the foreign ids; we have them indexed.
@@ -236,17 +235,7 @@ impl<FM: TableMarker> Id<FM> {
                 for i in got.into_iter() {
                     out.push(i);
                 }
-                ev.selection.deliver(out);
-                {
-                    if is_tracked.is_none() {
-                        is_tracked = Some(universe.is_tracked::<Select<LM>>());
-                    }
-                    if let Some(false) = is_tracked { return; }
-                    let mut sub: Select<LM> = Default::default();
-                    mem::swap(&mut sub.selection, &mut ev.selection);
-                    universe.submit_event(&mut sub);
-                    mem::swap(&mut sub.selection, &mut ev.selection);
-                }
+                ev.deliver(&universe, out);
             },
         );
     }
@@ -289,7 +278,6 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
             },
         );
         // FIXME: 'Moved' is kinda hard. :/
-        let mut is_tracked: Option<bool> = None;
         universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
             move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: UniverseRef| {
                 // 8. Push the local ids of the foreign ids; we have them indexed.
@@ -325,17 +313,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
                 for i in got.into_iter() {
                     out.push(i);
                 }
-                ev.selection.deliver(out);
-                {
-                    if is_tracked.is_none() {
-                        is_tracked = Some(universe.is_tracked::<Select<LM>>());
-                    }
-                    if let Some(false) = is_tracked { return; }
-                    let mut sub: Select<LM> = Default::default();
-                    mem::swap(&mut sub.selection, &mut ev.selection);
-                    universe.submit_event(&mut sub);
-                    mem::swap(&mut sub.selection, &mut ev.selection);
-                }
+                ev.deliver(&universe, out);
             },
         );
     }
@@ -347,6 +325,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
 pub struct Selection {
     pub seen: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
     pub selection_order: Vec<TypeId>,
+    pub exclude: HashSet<TypeId>,
 }
 impl Selection {
     pub fn get<M: TableMarker>(&self) -> Option<&RunList<M>> {
@@ -362,18 +341,21 @@ impl Selection {
             })
             .unwrap_or_else(Default::default)
     }
-    pub fn deliver<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
+    fn deliver<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
         let ty = TypeId::of::<M>();
+        debug_assert!(!self.excluded(ty));
         self.seen.insert(ty, ids);
         self.selection_order.push(ty);
     }
     pub fn from<FM: TableMarker>(sel: RunList<FM>) -> Self {
         let mut seen = HashMap::new();
-        seen.insert(TypeId::of::<FM>(), Box::new(sel) as Box<dyn Any + Send + Sync>);
-        Selection { seen, selection_order: vec![] }
+        let ty = TypeId::of::<FM>();
+        seen.insert(ty, Box::new(sel) as Box<dyn Any + Send + Sync>);
+        Selection { seen, .. Self::default() }
     }
     pub fn add_stub<T: Any>(&mut self) {
         let ty = TypeId::of::<T>();
+        debug_assert!(!self.excluded(ty));
         self.seen.insert(ty, Box::new(()));
         self.selection_order.push(ty);
     }
@@ -381,17 +363,30 @@ impl Selection {
         self.seen.remove(&ty);
         self.selection_order.retain(|&t| t != ty);
     }
+    pub fn excluded(&self, ty: TypeId) -> bool { self.exclude.contains(&ty) }
 }
 #[derive(Default)]
 pub struct Select<FM> {
-    pub foreign_marker: FM,
     pub selection: Selection,
+    pub foreign_marker: FM,
 }
 impl<FM: TableMarker> Select<FM> {
     pub fn from(sel: RunList<FM>) -> Self {
         Select {
+            selection: Selection::from(sel),
             foreign_marker: FM::default(),
-            selection: Selection::from(sel)
         }
+    }
+    pub fn excluded(&self) -> bool {
+        self.selection.exclude.contains(&TypeId::of::<Self>())
+    }
+    pub fn deliver<LM: TableMarker>(&mut self, universe: &Universe, ids: Box<RunList<LM>>) {
+        if self.selection.excluded(TypeId::of::<LM>()) { return; }
+        if !universe.is_tracked::<Select<LM>>() { return; }
+        self.selection.deliver(ids);
+        let mut sub: Select<LM> = Default::default();
+        mem::swap(&mut sub.selection, &mut self.selection);
+        universe.submit_event(&mut sub);
+        mem::swap(&mut sub.selection, &mut self.selection);
     }
 }
