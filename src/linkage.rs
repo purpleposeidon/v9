@@ -341,7 +341,7 @@ impl Selection {
             })
             .unwrap_or_else(Default::default)
     }
-    fn deliver_ids<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
+    pub fn deliver_ids<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
         let ty = TypeId::of::<M>();
         debug_assert!(!self.excluded(ty));
         self.seen.insert(ty, ids);
