@@ -382,8 +382,8 @@ impl<FM: TableMarker> Select<FM> {
     }
     pub fn deliver<LM: TableMarker>(&mut self, universe: &Universe, ids: Box<RunList<LM>>) {
         if self.selection.excluded(TypeId::of::<LM>()) { return; }
-        if !universe.is_tracked::<Select<LM>>() { return; }
         self.selection.deliver_ids(ids);
+        if !universe.is_tracked::<Select<LM>>() { return; }
         let mut sub: Select<LM> = Default::default();
         mem::swap(&mut sub.selection, &mut self.selection);
         universe.submit_event(&mut sub);
