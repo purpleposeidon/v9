@@ -289,6 +289,12 @@ macro_rules! decl_table {
                             $($cn: &self.$cn[i],)*
                         }
                     }
+                    pub fn borrow(&'a self, ids: &'a Ids) -> Read<'a> {
+                        Read {
+                            $($cn: self.$cn.borrow(),)*
+                            __v9__iter: ids,
+                        }
+                    }
                 }
                 impl<'a> Write<'a> {
                     pub fn clone_row(&self, i: impl 'a + Check<M=Marker>) -> Row {

@@ -171,6 +171,15 @@ impl<'a, M: TableMarker, T> WriteColumn<'a, M, T> {
         ReadColumn { col: &*self.col }
     }
 }
+impl<'a, M: TableMarker, T> EditColumn<'a, M, T>
+where
+    T: Clone,
+{
+    pub fn borrow(&self) -> ReadColumn<M, T> {
+        assert!(self.log.is_empty());
+        ReadColumn { col: &*self.col }
+    }
+}
 
 unsafe impl<'a, M, T: Send + Sync> ExtractOwned for ReadColumn<'a, M, T>
 where
