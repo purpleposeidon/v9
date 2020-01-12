@@ -581,6 +581,10 @@ impl<M: TableMarker> IdList<M> {
             )
         }
     }
+    pub fn erase_events(&mut self) {
+        self.pushing.clear();
+        self.deleting.get_mut().clear();
+    }
 }
 impl<'a, M: TableMarker> IntoIterator for &'a IdList<M> {
     type Item = CheckedId<'a, M>;
