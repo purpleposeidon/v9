@@ -23,6 +23,8 @@ Add "ImmediateEdit" so you can say `Immediate<my_table::edit::Foo>`. It would al
 impl Extract for T where T: Property + Copy
 Delete 'kmap'; eval's better.
 s/remove/delete. The distinction isn't helpful.
+s/is_tracked/is_tracking
+Running a Kernel is far too much work for the computer.
 
 # Consistency/Ordering Issue
 We acquire a bunch of locks.
