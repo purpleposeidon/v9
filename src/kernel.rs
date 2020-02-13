@@ -351,3 +351,22 @@ where
         ret
     }
 }
+
+/// ```compile_fail
+/// #[v9::table]
+/// pub struct pets {
+///     pub name: String,
+///     pub hungry: bool,
+/// }
+/// fn shouldnt_compile() {
+///     let u = v9::prelude::Universe::new();
+///     let mut some_ref = None;
+///     u.eval(move |pets: pets::Read| {
+///         for id in pets.iter() {
+///             some_ref = Some(&pets.name[id]);
+///         }
+///     });
+/// }
+/// ```
+#[cfg(doctest)]
+struct UnsafetyTest;
