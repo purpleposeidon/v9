@@ -388,5 +388,18 @@ unsafe impl<'a> Extract for UniverseRef<'a> {
 ///     });
 /// }
 /// ```
+/// ```compile_fail
+/// use v9::prelude_lib::*;
+/// use v9::kernel::KernelArg;
+/// fn static_stuff_shouldnt_compile() {
+///     // FIXME: Pretty sure this one's some rather serious unsoundness...
+///     // Or that something like this could be.
+///     let u = Universe::new();
+///     let mut foo: &'static i32 = &0;
+///     u.eval(|bar: KernelArg<&'static i32>| {
+///         foo = *bar;
+///     });
+/// }
+/// ```
 #[cfg(doctest)]
 struct StaticStuffShouldntCompile;
