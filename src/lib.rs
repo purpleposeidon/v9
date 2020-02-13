@@ -1,34 +1,108 @@
-//! A data engine for [Data Oriented Design](http://dataorienteddesign.com/).
-//! `crate:v9` is a vastly simpler version of `crate:v11`. [<u><b>Example code</b></u>](macro.decl_table.html#usage)
+//! `v9` is a clean, easy to use, and flexible data engine.
+//!
+//! It provides a means to implement applications using [Data Oriented Design](http://dataorienteddesign.com/).
+//!
+//! ```
+//! #[v9::table]
+//! struct engines {
+//!     pub cylinder_count: u8,
+//!     pub lines_of_code: u64,
+//! }
+//!
+//! use v9::prelude::Universe;
+//! # fn f1() -> (Universe, engines::Id, engines::Id) {
+//! let mut universe = Universe::new();
+//!
+//! use v9::prelude::Register;
+//! engines::Marker::register(&mut universe);
+//!
+//! let (v9, v11) = universe.eval(|mut engines: engines::Write| {
+//!     (
+//!         engines.push(engines::Row {
+//!             cylinder_count: 9,
+//!             lines_of_code: 5000,
+//!         }),
+//!         engines.push(engines::Row {
+//!             cylinder_count: 11,
+//!             lines_of_code: std::u64::MAX,
+//!         }),
+//!     )
+//! });
+//! # (universe, v9, v11)
+//! # }
+//!
+//! #[v9::table]
+//! struct projects {
+//!     pub name: &'static str,
+//!     pub engine: crate::engines::Id,
+//! }
+//!
+//! # fn f2((mut universe, v9, v11): (Universe, engines::Id, engines::Id)) {
+//! # use v9::prelude::Register;
+//! projects::Marker::register(&mut universe);
+//! universe.eval(|mut projects: projects::Write| {
+//!     projects.push(projects::Row {
+//!         name: "TOP SECRET!",
+//!         engine: v9,
+//!     });
+//!     projects.push(projects::Row {
+//!         name: "Stinky Cheese Inc!",
+//!         engine: v11,
+//!     });
+//! });
+//!
+//! universe.eval(|projects: projects::Read| {
+//!     assert_eq!(projects.iter().count(), 2);
+//! });
+//!
+//! universe.eval(|mut engines: engines::Write| {
+//!     engines.remove(v11);
+//! });
+//!
+//! universe.eval(|projects: projects::Read| {
+//!     // No dangling pointers!
+//!     assert_eq!(projects.iter().count(), 1);
+//! });
+//! # }
+//! # fn main() { f2(f1()) }
+//! ```
+//!
+//! ([Another example.](macro.decl_table.html#usage))
 //!
 //! # Design
-//! A `Universe` works like a `HashMap<TypeId, Any>`.
+//! A [`Universe`] works like a `HashMap<TypeId, Any>`.
 //! A single instance of any type can be inserted into the universe.
 // (...altho the TypeId key need not match the type_id of the Any...)
-//! Changes can then be made by `run`ning a `Kernel`.
-//! A `Kernel` is any closure whose arguments all implement `Extract`.
-//! (The `Extract` trait works like `fn extract(&Universe) -> Self`.)
+//! Changes can then be made by `run`ning a [`Kernel`].
+//! A `Kernel` is any closure whose arguments all implement [`Extract`],
+//! a trait that works like `fn extract(&Universe) -> Self`.
+//!
+//! [`Universe`]: object/struct.Universe.html
+//! [`Extract`]: extract/trait.Extract.html
+//! [`Kernel`]: kernel/struct.Kernel.html
 //!
 //! # Encapsulation
-//! This crate makes an unreasonable amount of things public. This is intentional!
-//! An application should encapsulate `v9` behind its own interfaces.
-//!
+//! This crate makes an unreasonable amount of things public. It's very intentional!
 //! It's hard to foresee all needs; hopefully you can do something useful with them,
 //! and this is more honest than making things `pub` to satisfy my whims.
+//!
+//! A serious application should provide its own interfaces to hide `v9` behind.
 //!
 //! # Safety
 //! ┐(ツ)┌
 //!
 //! My priorities are:
-//! 1. A clean API.
+//! 1. A beautiful API.
 //! 2. Gotta go fast:
 //!     - Compile-times must be fast.
-//!     - Bulk operations (mainly the kernels) must be h*ckin' fast.
+//!     - Bulk operations (via kernels) must be h*ckin' fast.
 //! 3. Safety.
+//!
+//! Monkey-proofing is not a high priority. That said,
+//! you'll probably only have trouble if you go looking for it.
 //!
 //! If you've tripped over something, that we'd maybe wish didn't compile, and it doesn't
 //! blow up at runtime in an obvious way, then I'll be concerned.
-//! Monkey-proofing is not a high priority.
 // I interpret 'fast compiles' as:
 // - minimizing the code output by macros & generics.
 // - prefer dynamic dispatch to static dispatch.

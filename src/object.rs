@@ -366,11 +366,27 @@ unsafe impl<'a> Extract for UniverseRef<'a> {
                 // stuff. The contract of Extract says that universe outlives Self.
                 // So you can only get this in to an argument to a closure.
                 // And Rust won't let you send stuff from closure arguments to outside the closure?
-                // Phew!
-                // (See tests/mut_kerne.rs, fn static_stuff_shouldnt_compile)
+                // Phew! (See StaticStuffShouldntCompile.)
                 &*(universe as *const _)
             },
         }
     }
     type Cleanup = ();
 }
+
+/// ```compile_fail
+/// use v9::prelude_lib::*;
+/// fn static_stuff_shouldnt_compile() {
+///     let mut dude = Option::<&Universe>::None;
+///     let u = Universe::new();
+///     u.eval(|verse: UniverseRef<'static>| {
+///         dude = Some(&verse);
+///     });
+///     std::mem::drop(u);
+///     dude.unwrap().eval(|_verse: UniverseRef| {
+///         panic!();
+///     });
+/// }
+/// ```
+#[cfg(doctest)]
+struct StaticStuffShouldntCompile;

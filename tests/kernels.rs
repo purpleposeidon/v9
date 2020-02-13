@@ -25,21 +25,6 @@ fn eval() {
     assert_eq!(buffer, "test!");
 }
 
-/*
-#[test]
-fn static_stuff_shouldnt_compile() {
-    let mut dude = Option::<&Universe>::None;
-    let u = Universe::new();
-    u.eval(|verse: UniverseRef<'static>| {
-        dude = Some(&verse);
-    });
-    std::mem::drop(u);
-    dude.unwrap().eval(|_verse: UniverseRef| {
-        panic!();
-    });
-}
-*/
-
 #[test]
 fn borrowing_universe() {
     let owo = Universe::new();

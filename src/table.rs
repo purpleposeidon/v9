@@ -508,8 +508,10 @@ macro_rules! decl_table {
                     $(pub type $cn<'a> = $crate::prelude_macro::EditColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     #[doc(hidden)]
                     $crate::decl_context! {
-                        /// Modification-access to the elements of a table. This does **not** allow adding or
-                        /// removing rows. Changes will be logged if necessary.
+                        /// Modification-access to the elements of a table.
+                        ///
+                        /// This does **not** allow adding or removing rows.
+                        /// Changes will be logged if necessary.
                         /// The id list can't be stored in here, so you must ask for it separately,
                         /// like `my_table_ids: &my_table::Ids`. If you are only editing one
                         /// column, you might consider `_: my_table::edit::specific_column`.
@@ -530,8 +532,9 @@ macro_rules! decl_table {
                     #[doc(hidden)]
                     pub type __V9__Iter<'a> = &'a mut super::super::in_v9::Ids;
                     $crate::decl_context! {
-                        /// Structural access to the table. You can push or delete rows. However,
-                        /// existing elements can not be modified.
+                        /// Structural access to the table. You can push or delete rows.
+                        ///
+                        /// However, existing elements can't be modified.
                         pub struct __Write {
                             $(pub $cn: $cn,)*
                             #[doc(hidden)]
