@@ -189,33 +189,6 @@ impl LockBuffer {
         Self::new::<Dump, Ret, K>()
     }
 }
-impl Kernel {
-    /// Check the initial arguments of a kernel. This is useful for [`KernelArg`].
-    ///
-    /// ```
-    /// # use v9::kernel::*;
-    /// # use v9::extract::Access;
-    /// # use std::any::TypeId;
-    /// let k = Kernel::new(|mut v: KernelArg<&mut i32>| **v += 1);
-    /// k.check_arg_prefix(&[
-    ///     (TypeId::of::<&mut i32>(), Access::Write),
-    /// ]).unwrap();
-    /// ```
-    pub fn check_arg_prefix(&self, args: &[(TypeId, Access)]) -> Result<(), String> {
-        if self.buffer.resources.len() < args.len() {
-            return Err(format!("not enough locked objects ({} required, {} present)", args.len(), self.buffer.resources.len()));
-        }
-        for (n, (a, b)) in args.iter().zip(self.buffer.resources.iter()).enumerate() {
-            if a.1 != b.1 {
-                return Err(format!("parameter part #{} has wrong type", n));
-            }
-            if a.0 != b.0 {
-                return Err(format!("parameter part #{} should use access {:?}, but it is {:?}", n, b.0, a.0));
-            }
-        }
-        Ok(())
-    }
-}
 
 #[no_mangle]
 fn v9_before_kernel_run() {}
