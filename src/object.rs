@@ -1,4 +1,5 @@
-///! The `Universe`, and interacting with it as a data structure.
+//! The `Universe`, and interacting with it as a data structure.
+
 use crate::prelude_lib::*;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use std::any::Any;
 
 // FIXME: Implement a property wrapper. Probably called `Val` instead of `Property`.
 
+/// The star of our show! The god object that holds everything.
 #[derive(Default)]
 pub struct Universe {
     // FIXME: Vec<Arc<RwLock<HashMap>>>; maybe called Vec<Blob>? Or maybe just s/Box/Arc<Locked>?
@@ -339,11 +341,13 @@ macro_rules! decl_context {
     };
 }
 
+/// This trait is implemented by macros such as `decl_table!`. It provides a common means for
+/// adding types to the [`Universe`].
 pub trait Register {
     fn register(universe: &mut Universe);
 }
 
-/// Using this could wreck havoc on schedulers, if you use them.
+/// Allows accessing a `Universe` from within a kernel. Best avoided if you use schedulers.
 // Which is why we don't just impl Extract for &Universe.
 #[repr(transparent)]
 pub struct UniverseRef<'a> {
@@ -392,13 +396,16 @@ unsafe impl<'a> Extract for UniverseRef<'a> {
 /// use v9::prelude_lib::*;
 /// use v9::kernel::KernelArg;
 /// fn static_stuff_shouldnt_compile() {
-///     // FIXME: Pretty sure this one's some rather serious unsoundness...
-///     // Or that something like this could be.
+///     // FIXME: This is legit unsafe unsoundness!
 ///     let u = Universe::new();
 ///     let mut foo: &'static i32 = &0;
 ///     u.eval(|bar: KernelArg<&'static i32>| {
 ///         foo = *bar;
 ///     });
+///     // Fixing this may be tractable.
+///     // impl Universe: fn eval<'u>(&'u self)...
+///     // trait Extract<'u>: $X: 'u,
+///     std::mem::drop(u);
 /// }
 /// ```
 #[cfg(doctest)]

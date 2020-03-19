@@ -1,3 +1,5 @@
+//! Singleton values.
+
 use crate::prelude_lib::*;
 
 pub trait PropertyMarker: 'static + Register + Send + Sync {
