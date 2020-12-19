@@ -11,24 +11,30 @@ pub enum LockState {
     Open,
     Write(ThreadId),
     Read(u64),
+    Poison,
 }
 
 pub struct Locked {
     // This is stuff is public due to our 'no encapsulation' policy.
     pub obj: UnsafeCell<Box<dyn Any>>,
     pub state: LockState,
+    pub name: Name,
 }
 impl fmt::Debug for Locked {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} {:?}", self.state, self.obj.get())
+        write!(f, "Locked({})::{:?}", self.name, self.state)
     }
 }
 impl Locked {
-    pub fn new(obj: Box<dyn Any>) -> Box<Self> {
+    pub fn new(obj: Box<dyn Any>, name: Name) -> Box<Self> {
         Box::new(Locked {
             obj: UnsafeCell::new(obj),
             state: LockState::Open,
+            name,
         })
+    }
+    pub fn is_poisoned(&self) -> bool {
+        self.state == LockState::Poison
     }
     // Rust does a fantastic job here.
     pub fn can(&self, access: Access) -> bool {
@@ -40,6 +46,7 @@ impl Locked {
                 panic!("thread deadlock")
             },
             (LockState::Write(_), _) => false,
+            (LockState::Poison, _) => false,
         }
     }
     pub fn acquire(&mut self, access: Access) {
@@ -57,11 +64,15 @@ impl Locked {
             (LockState::Read(n), Access::Read) => LockState::Read(n + 1), // checked_add? nah
             (LockState::Open, Access::Read) => LockState::Read(0),
             (LockState::Open, Access::Write) => LockState::Write(thread_id()),
+            (LockState::Poison, _) => {
+                panic!("acquired poisoned lock object");
+            },
         }
     }
     pub fn release(&mut self, access: Access) {
         //println!("release {:?} on {:?}", access, self);
         self.state = match (self.state, access) {
+            (LockState::Poison, _) => self.state,
             (LockState::Open, access) => {
                 panic!("tried to release({:?}) a lock that is already open", access)
             }
@@ -99,9 +110,12 @@ impl Locked {
 }
 impl Drop for Locked {
     fn drop(&mut self) {
-        if self.state != LockState::Open {
-            // FIXME: Would abort be more appropriate? Ugh!
-            panic!("Locked object dropped: {:?}", self.state);
+        if let LockState::Write(_) = self.state {
+            if std::thread::panicking() {
+                self.state = LockState::Poison;
+            } else {
+                panic!("Locked object dropped without release(): {:?}", self);
+            }
         }
     }
 }

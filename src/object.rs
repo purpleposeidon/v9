@@ -37,11 +37,11 @@ impl Universe {
     }
     pub fn add<T: Any>(&self, key: TypeId, obj: T) {
         let map = &mut *self.objects.write().unwrap();
-        Universe::insert(map, key, Locked::new(Box::new(obj)));
+        Universe::insert(map, key, Locked::new(Box::new(obj), std::any::type_name::<T>()));
     }
     pub fn add_mut<T: Any>(&mut self, key: TypeId, obj: T) {
         let map = &mut *self.objects.get_mut().unwrap();
-        let obj = Locked::new(Box::new(obj));
+        let obj = Locked::new(Box::new(obj), std::any::type_name::<T>());
         Universe::insert(map, key, obj);
     }
     pub fn remove<T: Any>(&self, key: TypeId) -> Option<Box<dyn Any>> {

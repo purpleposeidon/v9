@@ -57,7 +57,10 @@ impl Universe {
         let mut objects = self.objects.write().unwrap();
         let obj = objects
             .entry(ty)
-            .or_insert_with(|| Locked::new(Box::new(Tracker::<E>::new())));
+            .or_insert_with(|| Locked::new(
+                Box::new(Tracker::<E>::new()),
+                std::any::type_name::<Tracker<E>>(),
+            ));
         obj.acquire(Access::Write);
         unsafe {
             let obj: &mut dyn Any = &mut *obj.contents();
