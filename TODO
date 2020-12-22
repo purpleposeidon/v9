@@ -1,3 +1,20 @@
+# Todos: Written Out Again
+$table::name should be static, not const
+can probably remove $table::swap, $table::clear
+we need predicates
+    generate_events: New<T>,
+    view_events: &See<T>,
+    filter_events: &mut See<T>,
+    take_events: Take<T>,
+Requiring a trait for properties to impl is sucky.
+    I think we should just allow any ol' Any+Send+Sync to be inserted.
+    Ah, the solution is simple. Call universe.install::<T>(t). This inserts T, and registers extractors for &T and &mut T.
+rework kernel running so that it's less awful to step through in GDB. We ideally have, like, just the 1 stack frame.
+    - We might want to do some defer nonsense to get rid of that *awful* std::panic::catch.
+        - Or we could just abort!?
+            - ... Well, we want real stacktraces at least.
+                - But maybe we don't! Actually release-mode stacktraces are useless, even with trimming.
+
 # Documentation
 Explain that you can't extract owned things.
 Explain the universe methods implemented in each module.
@@ -23,7 +40,7 @@ Add "ImmediateEdit" so you can say `Immediate<my_table::edit::Foo>`. It would al
 impl Extract for T where T: Property + Copy
 Delete 'kmap'; eval's better.
 s/remove/delete. The distinction isn't helpful.
-s/is_tracked/is_tracking
+s/is_tracked/is_tracking. Or just 'tracked' or 'tracking'?
 Running a Kernel is far too much work for the computer.
 
 # Consistency/Ordering Issue
@@ -39,10 +56,13 @@ Some events need to be submitted to maintain data consistency
         * Doing consistency can result in ARBITRARY COLUMN ACCESS!?
         * How 'bout this. ThreadId. Only the current thread can acquire locks.
 - They can release locks if they like.
+    What if the locks required by every following event handler were reserved before the locks held for the executing kernel were released?
 
 It would be nice to have a way to indicate a bi-directional dependency.
     - Deleting the foreign row deletes the local row.
     - We might want the reverse to happen also.
+It would make sense for any direct RowId to cause removal if the foreign row were removed. We could also have "Owns<Id>", which would delete the foreign row if the local row is deleted?
+
 
 # Uhm
 We should make it so that you have the option of that, when you call 'remove' on something, if it's got linkage, it also removes the foreign table?
@@ -67,6 +87,71 @@ Have `known_variants: Vec<u64>`. Check for hash collisions.
     Universe::push_mask(Variant)?
         Vec or singleton, hmm?
 
+# Stuff
+It'd be cool to have Edit::into_write(self) and Write::into_edit(self).
+Or maybe:
+    Edit::then_push(self, Vec<Rows>)
+    Edit::then_remove(self, Vec<Id>)
+Maybe the idea is that there's a chain of change sets.
+    Vec<ChangeSet>
+You queue up some changes...
+Maybe it's a "BufferedMut".
+    You say "I'm going to edit these rows",
+    and then "I'm going to push these rows",
+    and then "I'm going to remove these rows",
+    and any of these can happen in any order,
+    and the Universe does its reactions between each step.
+    Ooh! Maybe it's just like an external thingie.
+
+# Things
+Facts (Events). You can have Emit<Fact> (or Log<Fact> ?)
+trait Extract: fn install_on(&mut Universe) {}
+    This allows you to take `Log<Fact>` as a kernel arg.
+if you want uh Iterator-combinator style kernels, you'd probably need a separate Kernel type...
+    Like what if you took some kind of Iterator-combinator as a param?
+        It'd suck, probably.
+            Maybe the iterator is built dynamically sorta, like you say  items.select_where(items::Id, bodies::Inv).each(|_| {})...
+            Better: You say
+                Kernel::iter(
+                    items::select_where_in(items::Id, bodies::Inv),
+                    |
+                        item_type: items::type::ItemType,
+                        item_id: items::Id,
+                        bod: bodies::Id,
+                        players: players::Edit,
+                    | {
+                        // ...
+                    },
+                );
+            Insufficiently better!
+                items::select_where_in(items::Id, bodies::Inv)
+                    .map(|
+                        item_type: items::type::ItemType,
+                        item_id: items::Id,
+                        bod: bodies::Id,
+                        players: players::Edit,
+                    | {
+                        // ...
+                    })
+                items::read::Id::select_from::<bodies::read::inv>(|
+                    item_type: items::type::ItemType,
+                    item_id: items::Id,
+                    bod: bodies::Id,
+                    players: players::Edit,
+                | {
+                    // ...
+                })
+Kernel Variants
+    The 'edit maybe logs' thing is sad. We could have a mechanism where you give a bunch of kernels in order of efficiency. There's a PredicateCell-thingie that says which one is the best to use. It calculates it by going through each of the arguments; `Extract` gets a `is_usable` thingie -- or something that just allows figuring out if a column has a tracker.
+PredicateCell
+    value calculated from a kernel. Looks at the utilized types, and re-evaluates the cell whenever an input changes.
+    ReducePredicateCell
+        cell has a default value. Has two mandatory arguments, 'previous value' and 'new rows'.
+        (T: Default; have to calc from scratch if a col is edited. Or just crash!)
+        we could say 'we need to watch these particular rows'. Like we have a Selection, say. Very messy! Far too ugly IMO.
+            row edited? predicate(Default(), old_value) != predicate(Default(), new_value) --> recalc all
+            wait, a join wouldn't be so bad.
+    I may have gotten past wanting PredicateCells by virtue of TagDB?
 
 # documentation
 [package.metadata.docs.rs]

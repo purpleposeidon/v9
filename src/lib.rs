@@ -164,7 +164,7 @@ pub mod prelude_lib {
     pub use crate::table::{TableHeader, TableMarker};
     pub use crate::util::*;
     pub use crate::linkage::*;
-    pub use std::any::{Any, TypeId};
+    pub use std::any::{Any, TypeId, type_name};
     pub use std::cmp::Ordering;
     pub use std::marker::PhantomData;
     pub use std::ops::{Deref, DerefMut, Index, IndexMut, Range as StdRange};

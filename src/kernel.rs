@@ -2,8 +2,10 @@
 
 use crate::prelude_lib::*;
 use self::panic::AssertUnwindSafe;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::cell::Cell;
+use std::fmt;
 
 impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
@@ -14,7 +16,7 @@ impl Universe {
         self.run_and_return_into(kernel, (&mut ret) as &mut dyn Any);
         ret.expect("return value not set")
     }
-    pub unsafe fn prepare_buffer(&self, buffer: &mut LockBuffer) {
+    unsafe fn prepare_buffer(&self, buffer: &mut LockBuffer) {
         'again: loop {
             let mut objects = self.objects.write().unwrap();
             let locks = &mut buffer.locks;
@@ -44,7 +46,13 @@ impl Universe {
             break;
         }
     }
-    pub unsafe fn execute_from_buffer<F>(&self, buffer: &mut LockBuffer, func: F, return_value: &mut dyn Any)
+    unsafe fn execute_from_buffer<F>(
+        &self,
+        buffer: &mut LockBuffer,
+        func: F,
+        name: &str,
+        return_value: &mut dyn Any,
+    )
     where
         F: FnOnce(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()),
     {
@@ -65,13 +73,33 @@ impl Universe {
             });
         }));
         buffer.vals.clear();
-        unwind.unwrap_or_else(|e| panic::resume_unwind(e));
+        match unwind {
+            Ok(v) => v,
+            Err(e) if name.is_empty() => panic::resume_unwind(e),
+            Err(e) => {
+                // Box::<dyn Any>::downcast_map(f: impl FnOnce(T: Any) -> U: Any) -> Box::<dyn Any>;
+                match e.downcast::<&str>() {
+                    Ok(msg) => panic!("{} in kernel {}", msg, name),
+                    Err(e) => match e.downcast::<String>() {
+                        Ok(msg) => panic!("{} in kernel {}", msg, name),
+                        Err(e) => panic::resume_unwind(e),
+                    },
+                }
+            },
+        }
+        // FIXME: This causes two backtraces or something? But if I panic::resume_unwind, it
+        // re-uses the original value‽‽‽
     }
     pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn Any) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
             self.prepare_buffer(&mut kernel.buffer);
-            self.execute_from_buffer(&mut kernel.buffer, &mut kernel.run, return_value);
+            self.execute_from_buffer(
+                &mut kernel.buffer,
+                &mut kernel.run,
+                &kernel.name,
+                return_value,
+            );
         }
     }
     pub fn eval<Dump, Ret, K>(&self, k: K) -> Ret
@@ -88,7 +116,8 @@ impl Universe {
                 let got = k.run(universe, rez, cleanup);
                 ret.set(Some(got));
             };
-            self.execute_from_buffer(&mut buffer, run, &mut ());
+            let name = std::any::type_name::<K>();
+            self.execute_from_buffer(&mut buffer, run, name, &mut ());
             ret.into_inner().take().expect("return value not set")
         }
     }
@@ -143,14 +172,15 @@ pub unsafe trait EachResource<Dump, Ret> {
 pub struct Kernel {
     run: Box<dyn FnMut(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()) + 'static + Send + Sync>,
     buffer: LockBuffer,
+    pub name: Cow<'static, str>,
 }
-pub struct LockBuffer {
+struct LockBuffer {
     resources: Vec<(TypeId, Access)>,
     locks: Vec<(*mut Locked, Access)>,
     vals: Vec<(*mut dyn Any, Access)>,
 }
 impl LockBuffer {
-    pub fn new<Dump, Ret, K>() -> Self
+    fn new<Dump, Ret, K>() -> Self
     where
         K: EachResource<Dump, Ret>,
     {
@@ -181,12 +211,15 @@ impl LockBuffer {
         let vals = Vec::with_capacity(resources.len());
         LockBuffer { resources, locks, vals }
     }
-    pub fn new_for<Dump, Ret, K>(_func: &K) -> Self
-    where
-        K: KernelFn<Dump, Ret>,
-        K: 'static + Send + Sync,
-    {
-        Self::new::<Dump, Ret, K>()
+}
+
+impl fmt::Debug for Kernel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.name.is_empty() {
+            write!(f, "<anonymous kernel>")
+        } else {
+            write!(f, "kernel {}", self.name)
+        }
     }
 }
 
@@ -214,33 +247,71 @@ impl Kernel {
                 *ret = Some(k.run(universe, rez, cleanup));
             }),
             buffer: LockBuffer::new::<Dump, Ret, K>(),
+            name: std::any::type_name::<K>().into(),
         }
     }
     /// A kernel may have arguments that the `Universe` doesn't know about.
     /// Any such arguments must be at the front of the parameter list,
     /// and must be pushed in the same order as the parameters.
     /// The parameters themselves must be wrapped in `KernelArg<&T>`.
-    /// So, the kernel's parameters must start with `|t: KernelArg<&T>, m: KernelArg<&mut M>|`,
-    /// and they are given to the kernel by doing
-    /// `kernel.push_arg(&t); kernel.push_arg_mut(&mut m)`.
-    pub fn push_arg(&mut self, obj: &dyn Any) {
+    /// So, the kernel's parameters must be `|t: KernelArg<&T>, m: KernelArg<&mut M>, ...|`,
+    /// and the kernel is called like this
+    ///
+    /// ```no_compile
+    /// kernel
+    ///     .with_args()
+    ///     .arg(&t)
+    ///     .arg_mut(&mut m)
+    ///     .run(universe);
+    /// ```
+    pub fn with_args<'a>(&'a mut self) -> PushArgs<'a> {
+        PushArgs(Some(self))
+    }
+}
+pub struct PushArgs<'a>(Option<&'a mut Kernel>);
+impl<'a> PushArgs<'a> {
+    fn push(&mut self, obj: *mut dyn Any, access: Access) {
+        self.0.as_mut().unwrap().buffer.vals.push((obj, access));
+    }
+    pub fn arg<'b>(mut self, obj: &'b dyn Any) -> PushArgs<'b>
+    where
+        'a: 'b,
+    {
         let obj = obj as *const dyn Any as *mut dyn Any;
-        self.buffer.vals.push((obj, Access::Read));
+        self.push(obj, Access::Read);
+        self
     }
-    pub fn push_arg_mut(&mut self, obj: &mut dyn Any) {
+    pub fn arg_mut<'b>(mut self, obj: &'b mut dyn Any) -> PushArgs<'b>
+    where
+        'a: 'b,
+    {
         let obj = obj as *mut dyn Any;
-        self.buffer.vals.push((obj, Access::Write));
+        self.push(obj, Access::Write);
+        self
     }
-    pub fn clear_args(&mut self) {
-        self.buffer.vals.clear();
+    pub fn run(mut self, universe: &Universe) {
+        let k = self.0.take().unwrap();
+        universe.run(k)
+    }
+    pub fn run_return<Ret: Any>(mut self, universe: &Universe) -> Ret {
+        let k = self.0.take().unwrap();
+        universe.run_return::<Ret>(k)
+    }
+}
+impl<'a> Drop for PushArgs<'a> {
+    fn drop(&mut self) {
+        if let Some(k) = self.0.take() {
+            k.buffer.vals.clear();
+        }
     }
 }
 
 /// This wraps an argument to a kernel that does not exist in the `Universe`. It is provided using
-/// `Kernel::push_arg` before running the kernel.
+/// `Kernel::with_args()`.
 ///
-/// It's much nicer to have the thing you want in the `Universe`,
-/// but sometimes a non-`'static` lifetime is required.
+/// It's much nicer to have the thing live in the `Universe`,
+/// but sometimes a kernel requires a non-`'static` argument.
+// FIXME: Uhm, sure that's nice and all, but it still *ACTUALLY* requres 'static.
 pub struct KernelArg<T> {
     val: T,
 }

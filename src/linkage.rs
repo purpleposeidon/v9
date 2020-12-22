@@ -152,8 +152,10 @@ impl Universe {
     {
         let mut kernel = Kernel::new(f);
         self.add_tracker(move |universe: &Universe, ev: &mut E| {
-            kernel.push_arg(ev);
-            universe.run(&mut kernel);
+            kernel
+                .with_args()
+                .arg(ev)
+                .run(universe)
         });
     }
     pub fn add_tracker_with_mut_arg<F, Dump, E>(&mut self, f: F)
@@ -165,8 +167,10 @@ impl Universe {
     {
         let mut kernel = Kernel::new(f);
         self.add_tracker(move |universe: &Universe, ev: &mut E| {
-            kernel.push_arg_mut(ev);
-            universe.run(&mut kernel);
+            kernel
+                .with_args()
+                .arg_mut(ev)
+                .run(universe)
         });
     }
 }

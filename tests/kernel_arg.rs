@@ -51,11 +51,12 @@ fn arg_passing_issue() {
         //leak = Some(b.data[0]);
     });
     let mut val = format!("hello world!");
-    k.push_arg_mut(&mut val);
     let mut n0 = 0;
     let mut n1 = 1;
     let mut data = vec![&mut n0, &mut n1];
     let mut data = Scary { data: &mut data };
-    k.push_arg_mut(unsafe { data.forcecast() });
-    universe.run(&mut k);
+    k.with_args()
+        .arg_mut(&mut val)
+        .arg_mut(unsafe { data.forcecast() })
+        .run(&universe);
 }
