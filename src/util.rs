@@ -1,31 +1,46 @@
 use std::cell::RefCell;
 use std::ops::Deref;
+use crate::prelude_lib::RunList;
+use crate::table::TableMarker;
 
 /// A `Sync`able `RefCell`.
 #[derive(Default, Debug, Clone)]
 pub struct SyncRef<T> {
     val: RefCell<T>,
 }
-impl<T> SyncRef<T> {
-    pub fn new(val: T) -> Self {
+impl<T: TableMarker> SyncRef<RunList<T>> {
+    pub fn new(val: RunList<T>) -> Self {
         SyncRef {
             val: RefCell::new(val),
         }
     }
-    pub fn get_mut(&mut self) -> &mut T {
+    pub fn get_mut(&mut self) -> &mut RunList<T> {
         self.val.get_mut()
     }
-    pub fn as_cell(&mut self) -> &RefCell<T> {
+    pub fn as_cell(&mut self) -> &RefCell<RunList<T>> {
         &self.val
     }
-    pub unsafe fn as_cell_unsafe(&self) -> &RefCell<T> {
+    pub unsafe fn as_cell_unsafe(&self) -> &RefCell<RunList<T>> {
         &self.val
     }
 }
 // Trying to impl Deref/DerefMut provokes odd curiosities.
-unsafe impl<T: Send> Send for SyncRef<T> {}
-unsafe impl<T> Sync for SyncRef<T> {}
+unsafe impl<T: TableMarker> Send for SyncRef<RunList<T>> {}
+unsafe impl<T: TableMarker> Sync for SyncRef<RunList<T>> {}
 // FIXME: Ugh, this is probably unsound.
+
+/// ```compile_fail
+/// use std::cell::Cell;
+/// use v9::util::SyncRef;
+///
+/// fn main() {
+///     let sync_ref = SyncRef::new(Cell::new(0));
+///     fn check<T: Send + Sync>(_: T) {}
+///     check(sync_ref);
+/// }
+/// ```
+#[cfg(doctest)]
+struct SyncRefSyncless;
 
 /// A `&mut T` that pretends it's a `&T`.
 pub struct MutButRef<'a, T>(&'a mut T);
