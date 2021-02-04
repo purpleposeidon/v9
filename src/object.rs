@@ -395,18 +395,22 @@ unsafe impl<'a> Extract for UniverseRef<'a> {
 /// ```compile_fail
 /// use v9::prelude_lib::*;
 /// use v9::kernel::KernelArg;
-/// fn static_stuff_shouldnt_compile() {
-///     // FIXME: This is legit unsafe unsoundness!
-///     let u = Universe::new();
-///     let mut foo: &'static i32 = &0;
-///     u.eval(|bar: KernelArg<&'static i32>| {
-///         foo = *bar;
-///     });
-///     // Fixing this may be tractable.
-///     // impl Universe: fn eval<'u>(&'u self)...
-///     // trait Extract<'u>: $X: 'u,
-///     std::mem::drop(u);
+/// v9::decl_property! {
+///     pub FOO: ~[u8; 4] = [1, 2, 3, 4];
 /// }
+/// fn other_static_stuff_shouldnt_compile() {
+///     let mut u = Universe::new();
+///     FOO::register(&mut u);
+///     let mut foop = &mut [5, 6, 7, 8];
+///     u.eval(|foo: &'static mut FOO| {
+///         let foo: &mut [u8; 4] = &mut *foo;
+///         foop = foo;
+///     });
+///     println!("{:?}", foop);
+///     {u};
+///     println!("{:?}", foop);
+/// }
+/// fn main() {}
 /// ```
 #[cfg(doctest)]
-struct StaticStuffShouldntCompile;
+struct SoundnessChecks;
