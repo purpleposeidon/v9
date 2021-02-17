@@ -618,20 +618,20 @@ impl<'a, M: TableMarker> Iterator for ListRemoving<'a, M> {
             })
     }
 }
-unsafe impl<'a, M: TableMarker> ExtractOwned for &'a IdList<M> {
+unsafe impl<'a, M: TableMarker> ExtractOwned<'a> for &'a IdList<M> {
     type Ty = IdList<M>;
     const ACC: Access = Access::Read;
-    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
+    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self {
         let got: &dyn Any = rez.take_ref();
         got.downcast_ref().unwrap()
     }
 }
-unsafe impl<'a, M: TableMarker> Extract for &'a mut IdList<M> {
+unsafe impl<'a, M: TableMarker> Extract<'a> for &'a mut IdList<M> {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<IdList<M>>(), Access::Write)
     }
     type Owned = Self;
-    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
+    unsafe fn extract<'u: 'a>(_universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
         rez.take_mut_downcast()
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
@@ -646,8 +646,8 @@ pub struct IdListCleanup {
     tracked_events: u8,
     nothing: bool,
 }
-unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
-    fn pre_cleanup(owned: &'a mut IdList<M>, universe: &Universe) -> Self {
+unsafe impl<'a, M: TableMarker> Cleaner<'a, &'a mut IdList<M>> for IdListCleanup {
+    fn pre_cleanup(owned: &'a mut IdList<M>, universe: &'a Universe) -> Self {
         let tracked_events = {
             let p = universe.has::<Tracker<Pushed<M>>>();
             let d = universe.has::<Tracker<Deleted<M>>>();
@@ -656,7 +656,7 @@ unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
         let nothing = owned.pushing.is_empty() && owned.deleting.get_mut().is_empty();
         IdListCleanup { tracked_events, nothing }
     }
-    fn post_cleanup(self, universe: &Universe) {
+    fn post_cleanup(self, universe: &'a Universe) {
         if self.nothing { return; }
         // FIXME: this needs to happen without any other thread having the opportunity to acquire
         // locks. We could have a bit of state on 'verse that says "you can only release locks",

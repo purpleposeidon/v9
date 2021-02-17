@@ -181,29 +181,29 @@ where
     }
 }
 
-unsafe impl<'a, M, T: Send + Sync> ExtractOwned for ReadColumn<'a, M, T>
+unsafe impl<'a, M, T: Send + Sync> ExtractOwned<'a> for ReadColumn<'a, M, T>
 where
     M: TableMarker,
     T: 'static,
 {
     type Ty = Column<M, T>;
     const ACC: Access = Access::Read;
-    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
-        let obj: &'static dyn Any = rez.take_ref();
+    unsafe fn extract<'u: 'a>(_universe: &'u Universe, rez: &mut Rez<'u>) -> Self {
+        let obj: &dyn Any = rez.take_ref();
         ReadColumn {
             col: obj.downcast_ref().unwrap(),
         }
     }
 }
-unsafe impl<'a, M, T: Send + Sync> ExtractOwned for FastEditColumn<'a, M, T>
+unsafe impl<'a, M, T: Send + Sync> ExtractOwned<'a> for FastEditColumn<'a, M, T>
 where
     M: TableMarker,
     T: 'static,
 {
     type Ty = Column<M, T>;
     const ACC: Access = Access::Write;
-    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self {
-        let obj: &'static mut dyn Any = rez.take_mut();
+    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self {
+        let obj: &mut dyn Any = rez.take_mut();
         assert!(!universe.is_tracked::<Edited<M, T>>(), "FastEditColumn used on a tracked column");
         FastEditColumn {
             col: obj.downcast_mut().unwrap(),
@@ -219,7 +219,7 @@ where
     must_log: bool,
     log: Vec<(Id<M>, T)>,
 }
-unsafe impl<'a, M, T> Extract for EditColumn<'a, M, T>
+unsafe impl<'a, M, T> Extract<'a> for EditColumn<'a, M, T>
 where
     M: TableMarker,
     T: 'static + Send + Sync,
@@ -229,7 +229,7 @@ where
         f(TypeId::of::<Column<M, T>>(), Access::Write)
     }
     type Owned = EditColumnOwned<'a, M, T>;
-    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
+    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
         let col: &mut Column<M, T> = rez.take_mut_downcast();
         let must_log = universe.is_tracked::<Edited<M, T>>();
         let log = vec![];
@@ -246,7 +246,7 @@ pub struct EditColumnCleanup<M: TableMarker, T> {
     must_log: bool,
     log: Vec<(Id<M>, T)>,
 }
-unsafe impl<'a, M, T> Cleaner<EditColumn<'a, M, T>> for EditColumnCleanup<M, T>
+unsafe impl<'a, M, T> Cleaner<'a, EditColumn<'a, M, T>> for EditColumnCleanup<M, T>
 where
     M: TableMarker,
     T: 'static + Send + Sync,
@@ -276,14 +276,14 @@ where
         });
     }
 }
-unsafe impl<'a, M, T> ExtractOwned for WriteColumn<'a, M, T>
+unsafe impl<'a, M, T> ExtractOwned<'a> for WriteColumn<'a, M, T>
 where
     M: TableMarker,
     T: 'static + Send + Sync,
 {
     type Ty = Column<M, T>;
     const ACC: Access = Access::Write;
-    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
+    unsafe fn extract<'u: 'a>(_universe: &'u Universe, rez: &mut Rez<'u>) -> Self {
         WriteColumn {
             col: MutButRef::new(rez.take_mut_downcast()),
         }

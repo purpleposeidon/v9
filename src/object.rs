@@ -290,7 +290,7 @@ macro_rules! decl_context {
                 }
                 #[allow(non_camel_case_types)]
                 mod owned {
-                    $(pub type $cn = <super::cn::$cn<'static> as super::Extract>::Owned;)*
+                    $(pub type $cn<'a> = <super::cn::$cn<'a> as super::Extract<'a>>::Owned;)*
                 }
                 $(#[$meta])*
                 pub struct $name<'a> {
@@ -299,41 +299,41 @@ macro_rules! decl_context {
                         $cvis $cn: self::cn::$cn<'a>,
                     )*
                 }
-                pub struct __OwnedContext {
-                    $($cn: self::owned::$cn,)*
+                pub struct __OwnedContext<'a> {
+                    $($cn: self::owned::$cn<'a>,)*
                 }
-                unsafe impl<'a> Extract for $name<'a> {
+                unsafe impl<'a> Extract<'a> for $name<'a> {
                     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-                        $(<self::cn::$cn<'static> as Extract>::each_resource(f);)*
+                        $(<self::cn::$cn<'a> as Extract>::each_resource(f);)*
                     }
-                    type Owned = __OwnedContext;
-                    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
+                    type Owned = __OwnedContext<'a>;
+                    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
                         __OwnedContext {
-                            $($cn: <self::cn::$cn<'static> as Extract>::extract(universe, rez),)*
+                            $($cn: <self::cn::$cn<'a> as Extract<'a>>::extract(universe, rez),)*
                         }
                     }
                     unsafe fn convert(universe: &Universe, owned: *mut Self::Owned) -> Self {
                         let owned: &mut __OwnedContext = &mut *owned;
                         $name {
-                            $($cn: <self::cn::$cn<'static> as Extract>::convert(universe, &mut owned.$cn),)*
+                            $($cn: <self::cn::$cn<'a> as Extract<'a>>::convert(universe, &mut owned.$cn),)*
                         }
                     }
-                    type Cleanup = __OwnedCleanup;
+                    type Cleanup = __OwnedCleanup<'a>;
                 }
-                pub struct __OwnedCleanup {
-                    $($cn: <self::cn::$cn<'static> as Extract>::Cleanup,)*
+                pub struct __OwnedCleanup<'a> {
+                    $($cn: <self::cn::$cn<'a> as Extract<'a>>::Cleanup,)*
                 }
-                unsafe impl<'a> Cleaner<$name<'a>> for __OwnedCleanup {
-                    fn pre_cleanup(owned: __OwnedContext, universe: &Universe) -> Self {
+                unsafe impl<'a> Cleaner<'a, $name<'a>> for __OwnedCleanup<'a> {
+                    fn pre_cleanup(owned: __OwnedContext<'a>, universe: &'a Universe) -> Self {
                         Self {
                             $($cn: {
-                                type T = self::cn::$cn<'static>;
-                                <<T as Extract>::Cleanup as Cleaner<T>>::pre_cleanup(owned.$cn, universe)
+                                type T<'a> = self::cn::$cn<'a>;
+                                <<T<'a> as Extract<'a>>::Cleanup as Cleaner<T<'a>>>::pre_cleanup(owned.$cn, universe)
                             },)*
                         }
                     }
-                    fn post_cleanup(self, universe: &Universe) {
-                        $(Cleaner::<self::cn::$cn<'static>>::post_cleanup(self.$cn, universe);)*
+                    fn post_cleanup(self, universe: &'a Universe) {
+                        $(Cleaner::<'a, self::cn::$cn<'a>>::post_cleanup(self.$cn, universe);)*
                     }
                 }
             }
@@ -359,10 +359,10 @@ impl<'a> Deref for UniverseRef<'a> {
     type Target = Universe;
     fn deref(&self) -> &Universe { self.universe }
 }
-unsafe impl<'a> Extract for UniverseRef<'a> {
+unsafe impl<'a> Extract<'a> for UniverseRef<'a> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = ();
-    unsafe fn extract(_universe: &Universe, _rez: &mut Rez) -> Self::Owned {}
+    unsafe fn extract<'u: 'a>(_universe: &'u Universe, _rez: &mut Rez) -> Self::Owned {}
     unsafe fn convert(universe: &Universe, _owned: *mut Self::Owned) -> Self {
         UniverseRef {
             universe: /*unsafe*/ {
