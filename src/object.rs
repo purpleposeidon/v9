@@ -270,7 +270,7 @@ macro_rules! decl_context {
             $vis use self::[<_v9_impl_ $name>]::$name;
 
             $(
-                $(#[allow(non_camel_case_types)] use $cty as [<_v9_ctx_ $name _ $cn>];)*
+                $(#[allow(non_camel_case_types)] use self::$cty as [<_v9_ctx_ $name _ $cn>];)*
                 $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $name _ $cn>]<'a> = &'a $cty_ref;)*
                 $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $name _ $cn>]<'a> = &'a mut $cty_mut;)*
             )*
