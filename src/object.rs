@@ -259,39 +259,38 @@ macro_rules! decl_context {
             $(
                 $(#[$cmeta:meta])*
                 $cvis:vis $cn:ident
-                                     $(: &$cty_ref:ty,)?
-                                     $(: &mut $cty_mut:ty,)?
-                                     $(: $cty:path,)?
+                    $(: &mut $cty_mut:ty,)?
+                    $(: &$cty_ref:ty,)?
+                    $(: $cty_path:path,)?
             )*
         }
     ) => {
         $crate::paste::item! {
             #[allow(unused_imports)]
             $vis use self::[<_v9_impl_ $name>]::$name;
-
-            $(
-                $(#[allow(non_camel_case_types)] use self::$cty as [<_v9_ctx_ $name _ $cn>];)*
-                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $name _ $cn>]<'a> = &'a $cty_ref;)*
-                $(#[allow(non_camel_case_types)] type [<_v9_ctx_ $name _ $cn>]<'a> = &'a mut $cty_mut;)*
-            )*
             #[allow(non_snake_case)]
             mod [<_v9_impl_ $name>] {
-                use $crate::prelude_macro::*;
-
                 // trickery to convert $:path to other things.
+                #[allow(non_camel_case_types)]
                 mod path {
+                    use super::super::*;
                     $(
-                        pub(super) use super::super::[<_v9_ctx_ $name _ $cn>] as $cn;
+                        pub type [<_v9_ctx_ $name _ $cn>]<'a> =
+                            $(&'a mut $cty_mut)?
+                            $(&'a $cty_ref)?
+                            $($cty_path<'a>)?
+                        ;
                     )*
                 }
                 #[allow(non_camel_case_types)]
                 mod cn {
-                    $(pub type $cn<'a> = super::path::$cn<'a>;)*
+                    $(pub type $cn<'a> = super::path::[<_v9_ctx_ $name _ $cn>]<'a>;)*
                 }
                 #[allow(non_camel_case_types)]
                 mod owned {
                     $(pub type $cn = <super::cn::$cn<'static> as super::Extract>::Owned;)*
                 }
+                use $crate::prelude_macro::*;
                 $(#[$meta])*
                 pub struct $name<'a> {
                     $(
