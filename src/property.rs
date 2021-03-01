@@ -183,17 +183,17 @@ macro_rules! decl_property {
 }
 
 pub unsafe trait Property: Any {}
-unsafe impl<'a, X: Property> ExtractOwned<'a> for &'a X {
+unsafe impl<'a, X: Property> ExtractOwned for &'a X {
     type Ty = X;
     const ACC: Access = Access::Read;
-    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self {
+    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
         rez.take_ref_downcast()
     }
 }
-unsafe impl<'a, X: Property> ExtractOwned<'a> for &'a mut X {
+unsafe impl<'a, X: Property> ExtractOwned for &'a mut X {
     type Ty = X;
     const ACC: Access = Access::Write;
-    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self {
+    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
         rez.take_mut_downcast()
     }
 }

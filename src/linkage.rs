@@ -52,12 +52,12 @@ impl<M: TableMarker, T: Ord> Default for ColumnIndex<M, T> {
         }
     }
 }
-unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract<'a> for &'a ColumnIndex<M, T> {
+unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a ColumnIndex<M, T> {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<ColumnIndex<M, T>>(), Access::Read)
     }
     type Owned = Self;
-    unsafe fn extract<'u: 'a>(_universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
+    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
         rez.take_ref_downcast()
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
@@ -65,12 +65,12 @@ unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract<'a> for 
     }
     type Cleanup = ();
 }
-unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract<'a> for &'a mut ColumnIndex<M, T> {
+unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a mut ColumnIndex<M, T> {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<ColumnIndex<M, T>>(), Access::Write)
     }
     type Owned = Self;
-    unsafe fn extract<'u: 'a>(_universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
+    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
         rez.take_mut_downcast()
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
@@ -91,22 +91,6 @@ impl Universe {
             ColumnIndex::<M, T>::default(),
         );
         // Next we add handlers for each event:
-        fn f<Dump, T: KernelFn<Dump, ()>>(_: T) {}
-        fn a<'a, T: Extract<'a>>() {} // FIXME: RM
-
-        a::<KernelArg<&Pushed<M>>>();
-        a::<&mut ColumnIndex<M, T>>();
-        a::<ReadColumn<M, T>>();
-        f(|ev: KernelArg<&Pushed<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
-            // 2. Insertion
-            // i = col.push(new)
-            // new index[(old, i)]
-            for id in &ev.ids {
-                let val = local[id];
-                index.map.insert((val, id), ());
-            }
-        });
-
         self.add_tracker_with_ref_arg::<_, _, Pushed<M>>(
             |ev: KernelArg<&Pushed<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
                 // 2. Insertion

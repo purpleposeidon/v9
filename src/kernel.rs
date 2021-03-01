@@ -54,7 +54,7 @@ impl Universe {
         return_value: &mut dyn Any,
     )
     where
-        F: for<'u> FnOnce(&'u Universe, Rez<'u>, &mut dyn Any, &mut dyn FnMut()),
+        F: FnOnce(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()),
     {
         let rez = Rez::new(mem::transmute(&buffer.vals[..]));
         let resources = &buffer.resources;
@@ -154,11 +154,11 @@ impl Universe {
 ///    - `kmap` requires the return value be `()`.
 ///    - `kmap_return` and `run_return` requires `Any`, which means it must be `'static`.
 pub unsafe trait KernelFn<Dump, Ret>: EachResource<Dump, Ret> {
-    unsafe fn run<'u>(&mut self, universe: &'u Universe, args: Rez<'u>, cleanup: &mut dyn FnMut()) -> Ret;
+    unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
 }
 
 pub unsafe trait KernelFnOnce<Dump, Ret>: EachResource<Dump, Ret> {
-    unsafe fn run<'u>(self, universe: &'u Universe, args: Rez<'u>, cleanup: &mut dyn FnMut()) -> Ret;
+    unsafe fn run(self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
 }
 
 pub unsafe trait EachResource<Dump, Ret> {
@@ -170,7 +170,7 @@ pub unsafe trait EachResource<Dump, Ret> {
 /// Works like a `Box<KernelFn>`.
 #[must_use]
 pub struct Kernel {
-    run: Box<dyn for<'u> FnMut(&'u Universe, Rez<'u>, &mut dyn Any, &mut dyn FnMut()) + 'static + Send + Sync>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()) + 'static + Send + Sync>,
     buffer: LockBuffer,
     pub name: Cow<'static, str>,
 }
@@ -315,10 +315,10 @@ impl<'a> Drop for PushArgs<'a> {
 pub struct KernelArg<T> {
     val: T,
 }
-unsafe impl<'a, T: Any> Extract<'a> for KernelArg<&'a T> {
+unsafe impl<'a, T: Any> Extract for KernelArg<&'a T> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = &'a T;
-    unsafe fn extract<'u: 'a>(_universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
+    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
         rez.take_ref_downcast()
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
@@ -326,10 +326,10 @@ unsafe impl<'a, T: Any> Extract<'a> for KernelArg<&'a T> {
     }
     type Cleanup = ();
 }
-unsafe impl<'a, T: Any> Extract<'a> for KernelArg<&'a mut T> {
+unsafe impl<'a, T: Any> Extract for KernelArg<&'a mut T> {
     fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
     type Owned = &'a mut T;
-    unsafe fn extract<'u: 'a>(_universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
+    unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
         rez.take_mut_downcast()
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
@@ -351,11 +351,10 @@ impl<T> DerefMut for KernelArg<T> {
 
 macro_rules! impl_kernel {
     ($($A:ident),*) => {
-        unsafe impl<'a, $($A,)* Ret, X> EachResource<($($A,)*), Ret> for X
+        unsafe impl<$($A,)* Ret, X> EachResource<($($A,)*), Ret> for X
         where
-            X: 'a,
             X: FnOnce($($A),*) -> Ret,
-            $($A: for<'x> Extract<'x>,)*
+            $($A: Extract,)*
         {
             fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
                 $(
@@ -364,13 +363,12 @@ macro_rules! impl_kernel {
             }
         }
         #[allow(non_snake_case)]
-        unsafe impl<'f, $($A,)* Ret, X> KernelFn<($($A,)*), Ret> for X
+        unsafe impl<$($A,)* Ret, X> KernelFn<($($A,)*), Ret> for X
         where
-            X: 'f,
             X: FnMut($($A),*) -> Ret,
-            $($A: for<'x> Extract<'x>,)*
+            $($A: Extract,)*
         {
-            unsafe fn run<'u>(&mut self, universe: &'u Universe, mut args: Rez<'u>, cleanup: &mut dyn FnMut()) -> Ret {
+            unsafe fn run(&mut self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
                 $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
                 let ret = {
                     $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
@@ -383,13 +381,12 @@ macro_rules! impl_kernel {
             }
         }
         #[allow(non_snake_case)]
-        unsafe impl<'f, $($A,)* Ret, X> KernelFnOnce<($($A,)*), Ret> for X
+        unsafe impl<$($A,)* Ret, X> KernelFnOnce<($($A,)*), Ret> for X
         where
-            X: 'f,
             X: FnOnce($($A),*) -> Ret,
-            $($A: for<'x> Extract<'x>,)*
+            $($A: Extract,)*
         {
-            unsafe fn run<'u>(self, universe: &'u Universe, mut args: Rez<'u>, cleanup: &mut dyn FnMut()) -> Ret {
+            unsafe fn run(self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
                 $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
                 let ret = {
                     $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
@@ -409,7 +406,6 @@ macro_rules! impl_kernel {
     };
 }
 impl_kernel! { A14, A13, A12, A11, A10, A09, A08, A07, A06, A05, A04, A03, A02, A01, A00 }
-//impl_kernel! { A03, A02, A01, A00 }
 unsafe impl<X, Ret> EachResource<(), Ret> for X
 where
     X: FnMut() -> Ret,

@@ -32,44 +32,43 @@ pub enum Access {
 // It's impossible. Any lifetime that you can name is valid for the duration of the function,
 // and what we need is to name lifetimes for something *shorter* than a function.
 // It might work with recursive closures or something, but I suspect it'd be way too nasty.
-pub unsafe trait Extract<'a>: Sized {
+pub unsafe trait Extract: Sized {
     /// List the type & access requirement needed to do the extraction.
     /// This function must have constant behavior; it is unsound otherwise.
     fn each_resource(f: &mut dyn FnMut(TypeId, Access));
-    type Owned: 'a;
-    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned;
+    type Owned;
+    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned;
     unsafe fn convert(universe: &Universe, owned: *mut Self::Owned) -> Self;
     /// Default is `()`, which does nothing.
-    type Cleanup: Cleaner<'a, Self>;
+    type Cleanup: Cleaner<Self>;
 }
 // FIXME: It'd be nice to have impls of Extract for tuples; up to, say, 5.
 
-pub unsafe trait Cleaner<'a, E: Extract<'a>> {
-    fn pre_cleanup(owned: E::Owned, universe: &'a Universe) -> Self;
-    fn post_cleanup(self, universe: &'a Universe);
+pub unsafe trait Cleaner<E: Extract> {
+    fn pre_cleanup(owned: E::Owned, universe: &Universe) -> Self;
+    fn post_cleanup(self, universe: &Universe);
 }
-unsafe impl<'a, E: Extract<'a>> Cleaner<'a, E> for () {
-    fn pre_cleanup(_owned: E::Owned, _universe: &'a Universe) -> Self {}
-    fn post_cleanup(self, _universe: &'a Universe) {}
+unsafe impl<E: Extract> Cleaner<E> for () {
+    fn pre_cleanup(_owned: E::Owned, _universe: &Universe) -> Self {}
+    fn post_cleanup(self, _universe: &Universe) {}
 }
 
 
 /// Helper trait.
-pub unsafe trait ExtractOwned<'a> {
+pub unsafe trait ExtractOwned {
     type Ty: Any;
     const ACC: Access;
-    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self;
+    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self;
 }
-unsafe impl<'a, X> Extract<'a> for X
+unsafe impl<X> Extract for X
 where
-    X: 'a,
-    X: ExtractOwned<'a>,
+    X: ExtractOwned,
 {
     fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
         f(TypeId::of::<X::Ty>(), X::ACC)
     }
     type Owned = Option<X>;
-    unsafe fn extract<'u: 'a>(universe: &'u Universe, rez: &mut Rez<'u>) -> Self::Owned {
+    unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
         Some(X::extract(universe, rez))
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> X {
@@ -80,35 +79,34 @@ where
 
 /// Produces the objects asked for by `Extract`.
 #[derive(Debug)]
-pub struct Rez<'a> {
-    vals: &'a [(*mut dyn Any, Access)],
-    // FIXME: We could use Result<&Any, &mut Any>
-    // Ooh! enum Mr<T> { }, it'd be great.
+pub struct Rez {
+    // FIXME: We don't actually need 'static on this, right?
+    vals: &'static [(*mut dyn Any, Access)],
 }
-impl<'a> Rez<'a> {
-    /// # Safety
-    /// `vals` must not alias, must not outlive `'a`, `Access` must be accurate.
-    pub(crate) unsafe fn new(vals: &'a [(*mut dyn Any, Access)]) -> Self {
+impl Rez {
+    pub(crate) fn new(vals: &'static [(*mut dyn Any, Access)]) -> Self {
         Rez { vals }
     }
-    pub fn take_ref(&mut self) -> &'a dyn Any {
+    pub unsafe fn take_ref<'b>(&mut self) -> &'b dyn Any {
         let (v, a): (*mut dyn Any, Access) = self.vals[0];
         assert_eq!(a, Access::Read, "asked for Access::Write but used take_ref");
         self.vals = &self.vals[1..];
-        unsafe { &mut *v }
+        &mut *v
     }
-    pub fn take_mut(&mut self) -> &'a mut dyn Any {
+    pub unsafe fn take_mut<'b>(&mut self) -> &'b mut dyn Any {
         let (v, a): (*mut dyn Any, Access) = self.vals[0];
         assert_eq!(a, Access::Write, "asked for Access::Read but used take_mut");
         self.vals = &self.vals[1..];
-        unsafe { &mut *v }
+        &mut *v
     }
-    pub fn take_ref_downcast<T: Any>(&mut self) -> &'a T {
+    pub unsafe fn take_ref_downcast<'b, T: Any>(&mut self) -> &'b T {
         let got: &dyn Any = self.take_ref();
         got.downcast_ref().unwrap()
     }
-    pub fn take_mut_downcast<T: Any>(&mut self) -> &'a mut T {
+    pub unsafe fn take_mut_downcast<'b, T: Any>(&mut self) -> &'b mut T {
         let got: &mut dyn Any = self.take_mut();
         got.downcast_mut().unwrap()
     }
+    // FIXME: Explain why we use the 'static lie.
+    // FIXME: Couldn't these methods be made safe if we stuck an 'b on Rez?
 }
