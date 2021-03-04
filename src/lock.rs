@@ -113,7 +113,9 @@ impl Drop for Locked {
         if let LockState::Write(_) = self.state {
             if std::thread::panicking() {
                 self.state = LockState::Poison;
-            } else {
+            } else if let LockState::Poison = self.state {
+                // This is fine.
+            } {
                 panic!("Locked object dropped without release(): {:?}", self);
             }
         }

@@ -77,7 +77,10 @@ impl Universe {
             Ok(v) => v,
             Err(e) if name.is_empty() => panic::resume_unwind(e),
             Err(e) => {
-                // Box::<dyn Any>::downcast_map(f: impl FnOnce(T: Any) -> U: Any) -> Box::<dyn Any>;
+                // FIXME: This causes two backtraces.
+                // But if I panic::resume_unwind, it re-uses the original value‽‽‽
+                // I would have to use a hook to fix this.
+                // But I think that would have problems w/ shared libraries.
                 match e.downcast::<&str>() {
                     Ok(msg) => panic!("{} in kernel {}", msg, name),
                     Err(e) => match e.downcast::<String>() {
@@ -87,8 +90,6 @@ impl Universe {
                 }
             },
         }
-        // FIXME: This causes two backtraces or something? But if I panic::resume_unwind, it
-        // re-uses the original value‽‽‽
     }
     pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn Any) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
