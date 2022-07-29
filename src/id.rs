@@ -807,6 +807,7 @@ impl<M: TableMarker> RunList<M> {
     pub fn push(&mut self, i: Id<M>) {
         self.validate();
         self.len += 1;
+        let last = M::RawId::LAST;
         // (a < b) --> a..=b
         // (a = b) --> [a]
         // (a > b) --> [b, a]
@@ -815,9 +816,9 @@ impl<M: TableMarker> RunList<M> {
             //if i == a || i == b { return; }
             match a.cmp(&b) {
                 Ordering::Less => {
-                    if b.step(1) == i {
+                    if b.0 != last && b.step(1) == i {
                         (a, i)
-                    } else if i.step(1) == a {
+                    } else if i.0 != last && i.step(1) == a {
                         (i, b)
                     } else {
                         self.data.push(old);
@@ -825,9 +826,9 @@ impl<M: TableMarker> RunList<M> {
                     }
                 }
                 Ordering::Equal => {
-                    if a.step(1) == i {
+                    if a.0 != last && a.step(1) == i {
                         (a, i)
-                    } else if i.step(1) == a {
+                    } else if i.0 != last && i.step(1) == a {
                         (i, a)
                     } else if i > a {
                         (i, a)
@@ -860,15 +861,15 @@ impl<M: TableMarker> RunList<M> {
                     // OR ARE THEY? 0,1 might merge. And 1,2 might merge. And 0,1,2 might merge
                     // also.
                     // Another issue: If we have [8, 8, 14], then self.len is wrong.
-                    if s[0].step(1) == s[1] {
-                        if s[1].step(1) == s[2] {
+                    if s[0].0 != last && s[0].step(1) == s[1] {
+                        if s[1].0 != last && s[1].step(1) == s[2] {
                             // Filled in a hole.
                             (s[0], s[2])
                         } else {
                             self.data.push((s[0], s[1]));
                             (s[2], s[2])
                         }
-                    } else if s[1].step(1) == s[2] {
+                    } else if s[1].0 != last && s[1].step(1) == s[2] {
                         self.data.push((s[0], s[0]));
                         (s[1], s[2])
                     } else if s[0] == s[1] || s[1] == s[2] {
