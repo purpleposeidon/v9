@@ -506,7 +506,6 @@ macro_rules! decl_table {
                 /// Edit an individual column.
                 pub mod edit {
                     $(pub type $cn<'a> = $crate::prelude_macro::EditColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
-                    #[doc(hidden)]
                     $crate::decl_context! {
                         /// Modification-access to the elements of a table.
                         ///
