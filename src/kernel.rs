@@ -16,7 +16,7 @@ impl Universe {
         self.run_and_return_into(kernel, (&mut ret) as &mut dyn Any);
         ret.expect("return value not set")
     }
-    unsafe fn prepare_buffer(&self, buffer: &mut LockBuffer) {
+    unsafe fn prepare_buffer(&self, name: &str, buffer: &mut LockBuffer) {
         'again: loop {
             let mut objects = self.objects.write().unwrap();
             let locks = &mut buffer.locks;
@@ -28,7 +28,7 @@ impl Universe {
                 let lock = objects
                     .get_mut(&ty)
                     .unwrap_or_else(|| {
-                        panic!("kernel argument component {} (of {}) has unknown type {:?}", argn, resources.iter().count(), ty)
+                        panic!("kernel {:?} argument component {} (of {}) has unknown type {:?}", name, argn, resources.iter().count(), ty)
                     });
                 if !lock.can(acc) {
                     continue 'again;
@@ -94,7 +94,7 @@ impl Universe {
     pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn Any) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
-            self.prepare_buffer(&mut kernel.buffer);
+            self.prepare_buffer(&kernel.name, &mut kernel.buffer);
             self.execute_from_buffer(
                 &mut kernel.buffer,
                 &mut kernel.run,
@@ -111,13 +111,13 @@ impl Universe {
         // We could store a 'trusted kernel type', and skip the validation.
         unsafe {
             let mut buffer = LockBuffer::new::<Dump, Ret, K>();
-            self.prepare_buffer(&mut buffer);
+            let name = std::any::type_name::<K>();
+            self.prepare_buffer(name, &mut buffer);
             let ret = Cell::new(Option::<Ret>::None);
             let run = |universe: &Universe, rez: Rez, _ret: &mut dyn Any, cleanup: &mut dyn FnMut()| {
                 let got = k.run(universe, rez, cleanup);
                 ret.set(Some(got));
             };
-            let name = std::any::type_name::<K>();
             self.execute_from_buffer(&mut buffer, run, name, &mut ());
             ret.into_inner().take().expect("return value not set")
         }
