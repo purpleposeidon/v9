@@ -792,6 +792,7 @@ impl<M: TableMarker> fmt::Debug for RunList<M> {
     }
 }
 impl<M: TableMarker> RunList<M> {
+    pub fn new() -> Self { Self::default() }
     #[inline(always)]
     fn validate(&self) {
         if cfg!(test) {
