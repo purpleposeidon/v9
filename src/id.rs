@@ -386,7 +386,7 @@ impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
 pub struct IdList<M: TableMarker> {
     pub free: RunList<M>,
     pushing: RunList<M>,
-    deleting: SyncRef<RunList<M>>,
+    deleting: SyncRef<M>,
     outer_capacity: usize,
     // We only use SyncRef because elsehwere needs a &mut V, but this is unusable.
 }
@@ -603,7 +603,7 @@ impl<'a, M: TableMarker> IntoIterator for &'a IdList<M> {
 }
 pub struct ListRemoving<'a, M: TableMarker> {
     checked: CheckedIter<'a, M>,
-    deleting: &'a SyncRef<RunList<M>>,
+    deleting: &'a SyncRef<M>,
     // FIXME: Make it &mut Vec :(
 }
 impl<'a, M: TableMarker> Iterator for ListRemoving<'a, M> {

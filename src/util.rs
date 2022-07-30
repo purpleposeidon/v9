@@ -5,10 +5,10 @@ use crate::table::TableMarker;
 
 /// A `Sync`able `RefCell`.
 #[derive(Default, Debug, Clone)]
-pub struct SyncRef<T> {
-    val: RefCell<T>,
+pub struct SyncRef<T: TableMarker> {
+    val: RefCell<RunList<T>>,
 }
-impl<T: TableMarker> SyncRef<RunList<T>> {
+impl<T: TableMarker> SyncRef<T> {
     pub fn new(val: RunList<T>) -> Self {
         SyncRef {
             val: RefCell::new(val),
@@ -25,8 +25,8 @@ impl<T: TableMarker> SyncRef<RunList<T>> {
     }
 }
 // Trying to impl Deref/DerefMut provokes odd curiosities.
-unsafe impl<T: TableMarker> Send for SyncRef<RunList<T>> {}
-unsafe impl<T: TableMarker> Sync for SyncRef<RunList<T>> {}
+unsafe impl<T: TableMarker> Send for SyncRef<T> {}
+unsafe impl<T: TableMarker> Sync for SyncRef<T> {}
 // FIXME: Ugh, this is probably unsound.
 
 /// ```compile_fail
