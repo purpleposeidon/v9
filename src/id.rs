@@ -225,9 +225,9 @@ unsafe impl<'a, M: TableMarker> Check for Id<M> {
     #[inline]
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.0 }
 }
-impl<'a, M: TableMarker> Into<Id<M>> for CheckedId<'a, M> {
-    fn into(self) -> Id<M> {
-        self.id
+impl<'a, M: TableMarker> From<CheckedId<'a, M>> for Id<M> {
+    fn from(v: CheckedId<'a, M>) -> Self {
+        v.id
     }
 }
 impl<M: TableMarker> From<usize> for Id<M> {
@@ -399,6 +399,9 @@ impl<M: TableMarker> IdList<M> {
         }
         self.outer_capacity - free_len
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     #[inline]
     pub fn outer_capacity(&self) -> usize { self.outer_capacity }
     #[inline]
@@ -411,7 +414,7 @@ impl<M: TableMarker> IdList<M> {
     pub fn flush(&mut self, universe: &Universe, tracked_events: u8) {
         if !self.pushing.is_empty() {
             if tracked_events & TRACK_PUSH != 0 {
-                let ids = mem::replace(&mut self.pushing, RunList::default());
+                let ids = mem::take(&mut self.pushing);
                 let mut pushed = Pushed { ids };
                 universe.submit_event(&mut pushed);
                 mem::swap(&mut pushed.ids, &mut self.pushing);
@@ -423,7 +426,7 @@ impl<M: TableMarker> IdList<M> {
         }
         if !self.deleting.get_mut().is_empty() {
             if tracked_events & TRACK_DELETE != 0 {
-                let ids = mem::replace(self.deleting.get_mut(), RunList::default());
+                let ids = mem::take(self.deleting.get_mut());
                 let mut deleted = Deleted { ids };
                 universe.submit_event(&mut deleted);
                 mem::swap(&mut deleted.ids, self.deleting.get_mut());
@@ -782,7 +785,7 @@ impl<M: TableMarker> fmt::Debug for RunList<M> {
             } else {
                 write!(f, ", ")?;
             }
-            match a.cmp(&b) {
+            match a.cmp(b) {
                 Ordering::Less => write!(f, "{:?}..={:?}", a, b),
                 Ordering::Equal => write!(f, "{:?}", a),
                 Ordering::Greater => write!(f, "{:?}, {:?}", b, a),

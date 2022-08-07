@@ -343,7 +343,7 @@ impl Selection {
             .and_then(|a| {
                 (a as Box<dyn Any>).downcast().ok()
             })
-            .unwrap_or_else(Default::default)
+            .unwrap_or_default()
     }
     pub fn deliver_ids<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
         let ty = TypeId::of::<M>();

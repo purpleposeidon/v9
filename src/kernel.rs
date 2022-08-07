@@ -28,7 +28,7 @@ impl Universe {
                 let lock = objects
                     .get_mut(&ty)
                     .unwrap_or_else(|| {
-                        panic!("kernel {:?} argument component {} (of {}) has unknown type {:?}", name, argn, resources.iter().count(), ty)
+                        panic!("kernel {:?} argument component {} (of {}) has unknown type {:?}", name, argn, resources.len(), ty)
                     });
                 if !lock.can(acc) {
                     continue 'again;

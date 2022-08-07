@@ -7,6 +7,7 @@ pub type Handler<E> = Box<dyn FnMut(&Universe, &mut E) + Send + Sync>;
 
 /// Event handlers for an event `E`.
 // FIXME: Events should use RunIter.
+#[derive(Default)]
 pub struct Tracker<E: 'static + Send + Sync> {
     pub handlers: Vec<Handler<E>>,
 }

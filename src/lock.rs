@@ -115,7 +115,7 @@ impl Drop for Locked {
                 self.state = LockState::Poison;
             } else if let LockState::Poison = self.state {
                 // This is fine.
-            } {
+            } else {
                 panic!("Locked object dropped without release(): {:?}", self);
             }
         }

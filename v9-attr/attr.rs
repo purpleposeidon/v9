@@ -72,6 +72,5 @@ mod _v9_property_call_{name} {{
     v9::decl_property! {{ {vis} {name}: TheType }}
 }}
 "#, input=input, vis=vis, name=struct_name);
-    let ret = FromStr::from_str(&out).unwrap();
-    ret
+    FromStr::from_str(&out).unwrap()
 }
