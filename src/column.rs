@@ -6,10 +6,10 @@ use std::hint::unreachable_unchecked;
 use crate::linkage::LiftColumn;
 
 #[derive(Debug)]
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Column<M: TableMarker, T> {
-    #[serde(skip)]
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub table_marker: M,
     // NB: This is unsafe to access. You could make the columns have different lengths.
     #[doc(hidden)]

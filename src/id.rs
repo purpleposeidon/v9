@@ -11,11 +11,27 @@ use std::cmp::Ordering;
 
 type Run<M> = (Id<M>, Id<M>);
 
+mod serializers {
+    macro_rules! for_set {
+        ($atr:meta, $($set:tt)*) => {
+            #[cfg($atr)]
+            pub trait Serializable: $($set)* {}
+            #[cfg($atr)]
+            impl<X: $($set)*> Serializable for X {}
+        };
+    }
+    for_set!(all(    feature = "serde" ,     feature = "bincode" ), serde::Serialize + serde::de::DeserializeOwned + bincode::Encode + bincode::Decode);
+    for_set!(all(not(feature = "serde"),     feature = "bincode" ), bincode::Encode + bincode::Decode);
+    for_set!(all(    feature = "serde" , not(feature = "bincode")), serde::Serialize + serde::de::DeserializeOwned);
+    for_set!(all(not(feature = "serde"), not(feature = "bincode")), );
+}
+
+
 pub trait Raw
 where
     Self: 'static + Send + Sync,
     Self: Ord + Copy + fmt::Debug + hash::Hash,
-    Self: serde::Serialize + serde::de::DeserializeOwned,
+    Self: self::serializers::Serializable,
     Self: Add<Output=Self> + Sub<Output=Self>,
     Self: self::raw_impl::Sealed,
 {
@@ -25,6 +41,7 @@ where
     const ZERO: Self;
     const LAST: Self;
 }
+
 mod raw_impl {
     /// Forbid non-primitives from being put into a SyncRef.
     pub trait Sealed {}
@@ -53,9 +70,10 @@ mod raw_impl {
 
 /// A strongly typed row id.
 #[derive(Copy, Clone)]
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(bound = "M: 'static")]
-#[serde(transparent)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(bound = "M: 'static"))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+// #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct Id<M: TableMarker>(pub M::RawId);
 impl<M: TableMarker> Default for Id<M> {
     fn default() -> Self {
@@ -239,10 +257,11 @@ impl<M: TableMarker> From<usize> for Id<M> {
 
 /// This is an exclusive range, just like `std::ops::Range`.
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(bound = "I: serde::Serialize + serde::de::DeserializeOwned")]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(bound = "I: serde::Serialize + serde::de::DeserializeOwned"))]
+#[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct IdRange<'a, I: Check> {
-    #[serde(skip)]
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) _a: PhantomData<&'a ()>,
     pub start: I,
     pub end: I,
@@ -769,7 +788,7 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 /// Otherwise you will need to take `&$table::Id` or `&mut $table::Id` as an argument to the
 /// `Kernel`.
 #[derive(Clone, Default)]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RunList<M: TableMarker> {
     len: usize,
     data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
@@ -1057,6 +1076,47 @@ impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
                 self.buffer = Some((a, a));
                 Some(b)
             }
+        }
+    }
+}
+
+#[cfg(feature = "bincode")]
+mod bincode_impls {
+    use super::{Id, RunList, TableMarker};
+    use bincode::enc::{Encoder, Encode};
+    use bincode::de::{Decoder, Decode};
+    use bincode::error::{EncodeError, DecodeError};
+    impl<M: TableMarker> Encode for Id<M> {
+        fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+            self.0.encode(encoder)
+        }
+    }
+    impl<M: TableMarker> Decode for Id<M> {
+        fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+            Ok(Id(<M::RawId as Decode>::decode(decoder)?))
+        }
+    }
+    impl<M: TableMarker> Encode for RunList<M> {
+        fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
+            self.len.encode(encoder)?;
+            let pairs = self.data.len();
+            pairs.encode(encoder)?;
+            for &pair in &self.data {
+                pair.encode(encoder)?;
+            }
+            Ok(())
+        }
+    }
+    impl<M: TableMarker> Decode for RunList<M> {
+        fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
+            let len = usize::decode(decoder)?;
+            let pairs: usize = usize::decode(decoder)?;
+            type P<M> = (Id<M>, Id<M>);
+            let mut data = smallvec::SmallVec::<[P::<M>; 2]>::with_capacity(pairs);
+            for _ in 0..pairs {
+                data.push(P::<M>::decode(decoder)?);
+            }
+            Ok(RunList { len, data })
         }
     }
 }

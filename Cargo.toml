@@ -14,8 +14,9 @@ members = [ "v9-attr" ]
 #slice-deque = "0.1.16"
 smallvec = { version = "0.6", features = ["serde"] }
 paste = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
 v9-attr = { path = "./v9-attr", version = "0.1.0" }
+bincode = { git = "https://github.com/bincode-org/bincode", default-features = false, features = ["std", "alloc", "derive"], optional = true }
 
 [dev-dependencies]
 rand = "0.7"

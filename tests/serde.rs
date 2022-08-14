@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "serde"), allow(dead_code, unused_imports))]
 use v9::prelude_lib::*;
 use v9::column::Column;
 
@@ -13,7 +14,9 @@ impl TableMarker for M {
 }
 
 
+#[cfg(feature = "serde")]
 #[test]
+#[cfg_attr(not(feature = "serde"), ignore)]
 fn serialize_it() {
     let col = Column {
         table_marker: M,

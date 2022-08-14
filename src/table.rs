@@ -162,14 +162,14 @@ pub struct ColumnHeader {
 /// ```
 /// v9::decl_table! {
 ///     /// Some of our many fine cheeses!
-///     #[row::derive(serde::Serialize)]
+///     //#[row::derive(serde::Serialize)]
 ///     #[row::doc = "Why does our cheese keep catching on fire!??"]
 ///     #[raw_index(u8)]
 ///     pub struct cheeses {
 ///         pub quantity: u64,
 ///         /// P. U.!
 ///         pub stinky: bool,
-///         #[serde(skip)]
+///         //#[serde(skip)]
 ///         pub on_fire: Option<bool>,
 ///     }
 /// }
