@@ -232,7 +232,7 @@ mod test {
         let mut universe = Universe::new();
         MY_PROPERTY::register(&mut universe);
         universe.kmap(|prop: &MY_PROPERTY| {
-            println!("{:?}", prop);
+            assert_eq!(prop.val, 27);
         });
     }
 }

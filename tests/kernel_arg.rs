@@ -39,6 +39,8 @@ unsafe impl<'e, 'a, 'b> Extract for &'e mut Scary<'a, 'b> {
 // ...Okay, but there's still problems here! :|
 // You can extract Scary<'static, 'static>.
 
+// FIXME: Two broken tests
+
 #[test]
 fn arg_passing_issue() {
     let universe = Universe::new();
@@ -46,7 +48,7 @@ fn arg_passing_issue() {
     let mut leak: Option<&mut i32> = None;
     let mut k = Kernel::new(|s: KernelArg<&mut String>, b: &mut Scary| {
         println!("{}", *s);
-        println!("{:?}", *b);
+        println!("{:?}", b.data);
         // Uncomment this code to verify that this scheme is (apparently) sound:
         //leak = Some(b.data[0]);
     });
@@ -60,3 +62,26 @@ fn arg_passing_issue() {
         .arg_mut(unsafe { data.forcecast() })
         .run(&universe);
 }
+
+/// ```compile_fail
+// FIXME: :| This doesn't work.
+/// let universe = Universe::new();
+/// #[allow(unused_variables, unused_mut)]
+/// let mut leak: Option<&mut i32> = None;
+/// let mut k = Kernel::new(|s: KernelArg<&mut String>, b: &mut Scary| {
+///     println!("{}", *s);
+///     println!("{:?}", *b);
+///     // Uncomment this code to verify that this scheme is (apparently) sound:
+///     leak = Some(b.data[0]);
+/// });
+/// let mut val = format!("hello world!");
+/// let mut n0 = 0;
+/// let mut n1 = 1;
+/// let mut data = vec![&mut n0, &mut n1];
+/// let mut data = Scary { data: &mut data };
+/// k.with_args()
+///     .arg_mut(&mut val)
+///     .arg_mut(unsafe { data.forcecast() })
+///     .run(&universe);
+/// ```
+pub struct Obj;
