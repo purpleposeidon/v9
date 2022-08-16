@@ -131,6 +131,7 @@ impl Universe {
                 }
             },
         );
+        #[cfg(feature = "move_event")]
         self.add_tracker_with_ref_arg::<_, _, Moved<M>>(
             |ev: KernelArg<&Moved<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
                 // 5. Moved
@@ -211,6 +212,7 @@ impl<FM: TableMarker> Id<FM> {
                 );
             },
         );
+        #[cfg(feature = "move_event")]
         universe.add_tracker_with_ref_arg::<_, _, Moved<FM>>(
             |ev: KernelArg<&Moved<FM>>, index: &ColumnIndex<LM, Self>, mut col: EditColumn<LM, Self>| {
                 // 7. Use the index to update everyone point at moved things.

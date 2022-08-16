@@ -22,3 +22,6 @@ ezty = "0.1"
 [dev-dependencies]
 rand = "0.7"
 serde_json = "1.0"
+
+[features]
+move_event = []

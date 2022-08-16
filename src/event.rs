@@ -236,11 +236,18 @@ impl<M: TableMarker, T: AnyDebug> Edited<M, T> {
     }
 }
 
+#[cfg(feature = "move_event")]
 #[derive(Debug)]
 pub struct Moved<M: TableMarker> {
     /// (old, new)
     pub ids: Vec<(Id<M>, Id<M>)>,
 }
+
+/// Requires `move_event` feature.
+#[cfg(not(feature = "move_event"))]
+#[derive(Debug)]
+pub enum Moved {}
+
 #[derive(Debug)]
 pub struct Deleted<M: TableMarker> {
     pub ids: RunList<M>,
