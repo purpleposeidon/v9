@@ -1,4 +1,5 @@
-//! Mechanisms for responding to events.
+//! Mechanisms for responding to events. No more than one event of each type should be emitted at a
+//! time; instead we coalesce bulk changes under a single event.
 
 use crate::column::Column;
 use crate::prelude_lib::*;

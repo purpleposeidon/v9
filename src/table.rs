@@ -30,10 +30,12 @@ pub struct ColumnHeader {
 /// ```
 /// // Declare a couple tables.
 /// // Note the snake_casing. The table macro actually epxands this into a module.
+/// // The struct you see here actually becomes cheeses::Row.
 /// #[v9::table]
 /// pub struct cheeses {
 ///     pub quantity: f64,
 ///     // NOTE: You should generally use absolute paths. You may get weird errors otherwise. :(
+// FIXME: Don't we have this under control w/ the super-super-* containment module? Look into this.
 ///     pub warehouse: crate::warehouses::Id,
 ///     pub stinky: bool,
 /// }
@@ -71,7 +73,7 @@ pub struct ColumnHeader {
 ///     println!("An empty inventory:");
 ///     universe.run(&mut print_inventory);
 ///
-///     // If we don't care allocation, you can use kmap. It reduces noise.
+///     // You can also use kmap. It's cleaner for you, but messier for the CPU.
 ///     // Let's use it add some things:
 ///     universe.kmap(|mut warehouses: warehouses::Write, mut cheeses: cheeses::Write| {
 ///         let w0 = warehouses.push(warehouses::Row {

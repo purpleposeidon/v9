@@ -24,6 +24,7 @@ Universe item docs are dumb
 crate docs: s/map/run
 
 # Polish
+Why is 'trait Property' marked unsafe?
 we can remove universe.kmap() now that we have eval().
 the firewall in table! can probably go away now that we have the 'mod types'
 

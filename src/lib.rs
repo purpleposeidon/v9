@@ -1,6 +1,13 @@
 //! `v9` is a clean, easy to use, and flexible data engine.
 //!
-//! It provides a means to implement applications using [Data Oriented Design](http://dataorienteddesign.com/).
+//! It provides a means to implement applications using [Data Oriented Design](https://dataorienteddesign.com/dodbook/).
+//!
+//! ## Is it an Entity Component System (ECS)?
+//! Not quite. An Entity is a single ID that can have any sort of data attached. `v9`'s data
+//! structures are more statically shaped, somewhat like an SQL server. While you could emulate an
+//! ECS with `v9`, you'd be better off using a crate for that purpose.
+//!
+//! # Example
 //!
 //! ```
 //! #[v9::table]
@@ -9,11 +16,9 @@
 //!     pub lines_of_code: u64,
 //! }
 //!
-//! use v9::prelude::Universe;
+//! use v9::prelude::{Universe, Register};
 //! # fn f1() -> (Universe, engines::Id, engines::Id) {
 //! let mut universe = Universe::new();
-//!
-//! use v9::prelude::Register;
 //! engines::Marker::register(&mut universe);
 //!
 //! let (v9, v11) = universe.eval(|mut engines: engines::Write| {
@@ -24,7 +29,7 @@
 //!         }),
 //!         engines.push(engines::Row {
 //!             cylinder_count: 11,
-//!             lines_of_code: std::u64::MAX,
+//!             lines_of_code: u64::MAX,
 //!         }),
 //!     )
 //! });
@@ -38,7 +43,6 @@
 //! }
 //!
 //! # fn f2((mut universe, v9, v11): (Universe, engines::Id, engines::Id)) {
-//! # use v9::prelude::Register;
 //! projects::Marker::register(&mut universe);
 //! universe.eval(|mut projects: projects::Write| {
 //!     projects.push(projects::Row {
@@ -74,12 +78,14 @@
 //! A single instance of any type can be inserted into the universe.
 // (...altho the TypeId key need not match the type_id of the Any...)
 //! Changes can then be made by `run`ning a [`Kernel`].
-//! A `Kernel` is any closure whose arguments all implement [`Extract`],
-//! a trait that works like `fn extract(&Universe) -> Self`.
+//! A `Kernel` is any closure whose arguments all implement the [`Extract`] trait,
+//! a trait for borrowing resources from the `Universe`. `Extract`s generate [events]
+//! upon the release of their borrowed values, which are used to maintain consistency.
 //!
 //! [`Universe`]: object/struct.Universe.html
 //! [`Extract`]: extract/trait.Extract.html
 //! [`Kernel`]: kernel/struct.Kernel.html
+//! [events]: event/index.html
 //!
 //! # Encapsulation
 //! This crate makes an unreasonable amount of things public. It's very intentional!
@@ -87,6 +93,7 @@
 //! and this is more honest than making things `pub` to satisfy my whims.
 //!
 //! A serious application should provide its own interfaces to hide `v9` behind.
+//! Someday there will be a refactor to incorporate my experience.
 //!
 //! # Safety
 //! ┐(ツ)┌
