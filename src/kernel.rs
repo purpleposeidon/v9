@@ -6,14 +6,15 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::cell::Cell;
 use std::fmt;
+use std::any::Any as StdAny;
 
 impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
         self.run_return::<()>(kernel)
     }
-    pub fn run_return<Ret: AnyDebug>(&self, kernel: &mut Kernel) -> Ret {
+    pub fn run_return<Ret: StdAny>(&self, kernel: &mut Kernel) -> Ret {
         let mut ret: Option<Ret> = None;
-        self.run_and_return_into(kernel, (&mut ret) as &mut dyn AnyDebug);
+        self.run_and_return_into(kernel, (&mut ret) as &mut dyn StdAny);
         ret.expect("return value not set")
     }
     unsafe fn prepare_buffer(&self, name: &str, buffer: &mut LockBuffer) {
@@ -51,10 +52,10 @@ impl Universe {
         buffer: &mut LockBuffer,
         func: F,
         name: &str,
-        return_value: &mut dyn AnyDebug,
+        return_value: &mut dyn StdAny,
     )
     where
-        F: FnOnce(&Universe, Rez, &mut dyn AnyDebug, &mut dyn FnMut()),
+        F: FnOnce(&Universe, Rez, &mut dyn StdAny, &mut dyn FnMut()),
     {
         let rez = Rez::new(mem::transmute(&buffer.vals[..]));
         let resources = &buffer.resources;
@@ -91,7 +92,7 @@ impl Universe {
             },
         }
     }
-    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn AnyDebug) {
+    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn StdAny) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
             self.prepare_buffer(&kernel.name, &mut kernel.buffer);
@@ -114,7 +115,7 @@ impl Universe {
             let name = std::any::type_name::<K>();
             self.prepare_buffer(name, &mut buffer);
             let ret = Cell::new(Option::<Ret>::None);
-            let run = |universe: &Universe, rez: Rez, _ret: &mut dyn AnyDebug, cleanup: &mut dyn FnMut()| {
+            let run = |universe: &Universe, rez: Rez, _ret: &mut dyn StdAny, cleanup: &mut dyn FnMut()| {
                 let got = k.run(universe, rez, cleanup);
                 ret.set(Some(got));
             };
@@ -135,7 +136,7 @@ impl Universe {
     }
     pub fn kmap_return<Ret, Dump, K>(&self, k: K) -> Ret
     where
-        Ret: AnyDebug,
+        Ret: StdAny,
         K: KernelFn<Dump, Ret>,
         K: 'static + Send + Sync,
         Dump: Send + Sync,
@@ -171,7 +172,7 @@ pub unsafe trait EachResource<Dump, Ret> {
 /// Works like a `Box<KernelFn>`.
 #[must_use]
 pub struct Kernel {
-    run: Box<dyn FnMut(&Universe, Rez, &mut dyn AnyDebug, &mut dyn FnMut()) + 'static + Send + Sync>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut dyn StdAny, &mut dyn FnMut()) + 'static + Send + Sync>,
     buffer: LockBuffer,
     pub name: Cow<'static, str>,
 }
@@ -235,7 +236,7 @@ unsafe impl Sync for LockBuffer {}
 impl Kernel {
     pub fn new<Dump, Ret, K>(mut k: K) -> Self
     where
-        Ret: AnyDebug,
+        Ret: StdAny,
         K: KernelFn<Dump, Ret>,
         K: 'static + Send + Sync,
         Dump: Send + Sync,
@@ -294,7 +295,7 @@ impl<'a> PushArgs<'a> {
         let k = self.0.take().unwrap();
         universe.run(k)
     }
-    pub fn run_return<Ret: AnyDebug>(mut self, universe: &Universe) -> Ret {
+    pub fn run_return<Ret: StdAny>(mut self, universe: &Universe) -> Ret {
         let k = self.0.take().unwrap();
         universe.run_return::<Ret>(k)
     }
