@@ -4,7 +4,7 @@ use crate::prelude_lib::*;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use std::any::Any;
+use ezty::AnyDebug;
 
 // FIXME: impl Extract for Universe.
 
@@ -14,7 +14,7 @@ use std::any::Any;
 #[derive(Default)]
 pub struct Universe {
     // FIXME: Vec<Arc<RwLock<HashMap>>>; maybe called Vec<Blob>? Or maybe just s/Box/Arc<Locked>?
-    pub(crate) objects: RwLock<HashMap<TypeId, Box<Locked>>>,
+    pub(crate) objects: RwLock<HashMap<Ty, Box<Locked>>>,
 }
 
 unsafe impl Send for Universe {}
@@ -27,7 +27,7 @@ impl Universe {
     pub fn new() -> Self {
         Self::default()
     }
-    fn insert(map: &mut HashMap<TypeId, Box<Locked>>, ty: TypeId, obj: Box<Locked>) {
+    fn insert(map: &mut HashMap<Ty, Box<Locked>>, ty: Ty, obj: Box<Locked>) {
         match map.entry(ty) {
             MapEntry::Occupied(_) => {
                 panic!("object inserted twice")
@@ -35,55 +35,55 @@ impl Universe {
             MapEntry::Vacant(e) => e.insert(obj),
         };
     }
-    pub fn add<T: Any>(&self, key: TypeId, obj: T) {
+    pub fn add<T: AnyDebug>(&self, key: Ty, obj: T) {
         let map = &mut *self.objects.write().unwrap();
         Universe::insert(map, key, Locked::new(Box::new(obj), std::any::type_name::<T>()));
     }
-    pub fn add_mut<T: Any>(&mut self, key: TypeId, obj: T) {
+    pub fn add_mut<T: AnyDebug>(&mut self, key: Ty, obj: T) {
         let map = &mut *self.objects.get_mut().unwrap();
         let obj = Locked::new(Box::new(obj), std::any::type_name::<T>());
         Universe::insert(map, key, obj);
     }
-    pub fn remove<T: Any>(&self, key: TypeId) -> Option<Box<dyn Any>> {
+    pub fn remove<T: AnyDebug>(&self, key: Ty) -> Option<Box<dyn AnyDebug>> {
         self.objects
             .write()
             .unwrap()
             .remove(&key)
             .map(|l| l.into_inner())
     }
-    pub fn remove_mut<T: Any>(&mut self, key: TypeId) -> Option<Box<dyn Any>> {
+    pub fn remove_mut<T: AnyDebug>(&mut self, key: Ty) -> Option<Box<dyn AnyDebug>> {
         self.objects
             .get_mut()
             .unwrap()
             .remove(&key)
             .map(|l| l.into_inner())
     }
-    pub fn has<T: Any>(&self) -> bool {
+    pub fn has<T: AnyDebug>(&self) -> bool {
         self.objects
             .read()
             .unwrap()
-            .get(&TypeId::of::<T>())
+            .get(&Ty::of::<T>())
             .is_some()
     }
 }
 
 impl Universe {
-    pub fn all_mut(&mut self, mut each: impl FnMut(&mut dyn Any)) {
+    pub fn all_mut(&mut self, mut each: impl FnMut(&mut dyn AnyDebug)) {
         let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let mut lock = lock.write();
-                let obj: &mut dyn Any = &mut *lock;
+                let obj: &mut dyn AnyDebug = &mut *lock;
                 each(obj);
             }
         }
     }
-    pub fn all_ref(&self, mut each: impl FnMut(&dyn Any)) {
+    pub fn all_ref(&self, mut each: impl FnMut(&dyn AnyDebug)) {
         let mut objs = self.objects.write().unwrap();
         for lock in objs.values_mut() {
             unsafe {
                 let lock = lock.read();
-                let obj: &dyn Any = &*lock;
+                let obj: &dyn AnyDebug = &*lock;
                 each(obj);
             }
         }
@@ -91,28 +91,28 @@ impl Universe {
 }
 
 impl Universe {
-    pub fn clone_value<T: Any + Clone>(&self) -> T {
+    pub fn clone_value<T: AnyDebug + Clone>(&self) -> T {
         self.with(T::clone)
     }
-    pub fn with<T: Any, R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        self.with_obj(TypeId::of::<T>(), |obj| {
+    pub fn with<T: AnyDebug, R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        self.with_obj(Ty::of::<T>(), |obj| {
             let obj = obj.downcast_ref().expect("type mismatch");
             f(obj)
         })
     }
-    pub fn with_mut<T: Any, R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        self.with_obj_mut(TypeId::of::<T>(), |obj| {
+    pub fn with_mut<T: AnyDebug, R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        self.with_obj_mut(Ty::of::<T>(), |obj| {
             let obj = obj.downcast_mut().expect("type mismatch");
             f(obj)
         })
     }
-    pub fn with_obj<R>(&self, ty: TypeId, f: impl FnOnce(&dyn Any) -> R) -> R {
+    pub fn with_obj<R>(&self, ty: Ty, f: impl FnOnce(&dyn AnyDebug) -> R) -> R {
         self.with_access(ty, Access::Read, move |obj| unsafe {
             let obj = &*obj;
             f(obj)
         })
     }
-    pub fn with_obj_mut<R>(&self, ty: TypeId, f: impl FnOnce(&mut dyn Any) -> R) -> R {
+    pub fn with_obj_mut<R>(&self, ty: Ty, f: impl FnOnce(&mut dyn AnyDebug) -> R) -> R {
         self.with_access(ty, Access::Write, move |obj| unsafe {
             let obj = &mut *obj;
             f(obj)
@@ -120,9 +120,9 @@ impl Universe {
     }
     pub fn with_access<R>(
         &self,
-        ty: TypeId,
+        ty: Ty,
         access: Access,
-        f: impl FnOnce(*mut dyn Any) -> R,
+        f: impl FnOnce(*mut dyn AnyDebug) -> R,
     ) -> R {
         loop {
             let mut objects = self.objects.write().unwrap();
@@ -153,8 +153,8 @@ mod test {
     use std::fmt::Write;
 
     unsafe impl<'a> Extract for &'a mut String {
-        fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-            f(TypeId::of::<String>(), Access::Write);
+        fn each_resource(f: &mut dyn FnMut(Ty, Access)) {
+            f(Ty::of::<String>(), Access::Write);
         }
         type Owned = Self;
         unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
@@ -174,7 +174,7 @@ mod test {
     #[test]
     fn single_string() {
         let mut universe = Universe::new();
-        let key = TypeId::of::<String>();
+        let key = Ty::of::<String>();
         universe.add_mut(key, format!("Hello"));
     }
 
@@ -182,7 +182,7 @@ mod test {
     #[should_panic]
     fn conflicting_strings() {
         let mut universe = Universe::new();
-        let key = TypeId::of::<String>();
+        let key = Ty::of::<String>();
         universe.add_mut(key, format!("oh no"));
         universe.add_mut(key, format!("o noez"));
     }
@@ -190,7 +190,7 @@ mod test {
     #[test]
     fn look_string() {
         let mut universe = Universe::new();
-        universe.add_mut(TypeId::of::<String>(), format!("Hello"));
+        universe.add_mut(Ty::of::<String>(), format!("Hello"));
         universe.kmap(|text: &mut String| {
             println!("Hey!");
             println!("We've got: {:?}", text);
@@ -207,7 +207,7 @@ mod test {
     #[test]
     fn change_string() {
         let mut universe = Universe::new();
-        universe.add_mut(TypeId::of::<String>(), format!("Hello"));
+        universe.add_mut(Ty::of::<String>(), format!("Hello"));
         universe.kmap(|text: &mut String| {
             println!("We've got: {:?}", text);
             write!(text, " World").ok();
@@ -302,7 +302,7 @@ macro_rules! decl_context {
                     $($cn: self::owned::$cn,)*
                 }
                 unsafe impl<'a> Extract for $name<'a> {
-                    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
+                    fn each_resource(f: &mut dyn FnMut(Ty, Access)) {
                         $(<self::cn::$cn<'static> as Extract>::each_resource(f);)*
                     }
                     type Owned = __OwnedContext;
@@ -359,7 +359,7 @@ impl<'a> Deref for UniverseRef<'a> {
     fn deref(&self) -> &Universe { self.universe }
 }
 unsafe impl<'a> Extract for UniverseRef<'a> {
-    fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
+    fn each_resource(_f: &mut dyn FnMut(Ty, Access)) {}
     type Owned = ();
     unsafe fn extract(_universe: &Universe, _rez: &mut Rez) -> Self::Owned {}
     unsafe fn convert(universe: &Universe, _owned: *mut Self::Owned) -> Self {

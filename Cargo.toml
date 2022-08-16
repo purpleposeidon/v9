@@ -1,6 +1,6 @@
 [package]
 name = "v9"
-version = "0.1.44"
+version = "0.1.45"
 authors = ["neptunepink <purpleposeidon@gmail.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
@@ -17,6 +17,7 @@ paste = "1.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 v9-attr = { path = "./v9-attr", version = "0.1.0" }
 bincode = { git = "https://github.com/bincode-org/bincode", default-features = false, features = ["std", "alloc", "derive"], optional = true }
+ezty = "0.1"
 
 [dev-dependencies]
 rand = "0.7"

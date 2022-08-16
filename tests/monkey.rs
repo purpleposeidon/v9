@@ -1,7 +1,7 @@
 use v9::prelude::*;
 use v9::event::Pushed;
 use v9::kernel::KernelArg;
-use std::any::TypeId;
+use v9::prelude_lib::Ty;
 
 #[v9::table]
 pub struct cheeses {
@@ -14,7 +14,7 @@ fn patch() {
     cheeses::Marker::register(&mut universe);
     type WeightCol = v9::column::Column<cheeses::Marker, f32>;
     universe.add_mut(
-        TypeId::of::<WeightCol>(),
+        Ty::of::<WeightCol>(),
         WeightCol::new(),
     );
     universe.add_tracker_with_ref_arg::<_, _, Pushed<cheeses::Marker>>(|

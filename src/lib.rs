@@ -70,9 +70,9 @@
 //! ([Another example.](macro.decl_table.html#usage))
 //!
 //! # Design
-//! A [`Universe`] works like a `HashMap<TypeId, Any>`.
+//! A [`Universe`] works like a `HashMap<Ty, Any>`.
 //! A single instance of any type can be inserted into the universe.
-// (...altho the TypeId key need not match the type_id of the Any...)
+// (...altho the Ty key need not match the type_id of the Any...)
 //! Changes can then be made by `run`ning a [`Kernel`].
 //! A `Kernel` is any closure whose arguments all implement [`Extract`],
 //! a trait that works like `fn extract(&Universe) -> Self`.
@@ -117,7 +117,7 @@ pub use v9_attr::*;
 pub extern crate paste;
 
 // FIXME: Use UniquePtr, etc...?
-// FIXME: Add universe.deny(TypeId) to allow constraints like "table is not sparse"
+// FIXME: Add universe.deny(Ty) to allow constraints like "table is not sparse"
 
 #[macro_use]
 pub mod object;
@@ -149,7 +149,7 @@ pub mod prelude_macro {
     pub use crate::object::{Universe, Register};
     pub use crate::property::*;
     pub use crate::table::{ColumnHeader, TableHeader, TableMarker};
-    pub use std::any::TypeId;
+    pub use ezty::Ty;
     pub use std::fmt;
 }
 
@@ -164,7 +164,7 @@ pub mod prelude_lib {
     pub use crate::table::{TableHeader, TableMarker};
     pub use crate::util::*;
     pub use crate::linkage::*;
-    pub use std::any::{Any, TypeId, type_name};
+    pub use ezty::{AnyDebug, Ty, type_name};
     pub use std::cmp::Ordering;
     pub use std::marker::PhantomData;
     pub use std::ops::{Deref, DerefMut, Index, IndexMut, Range as StdRange};

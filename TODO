@@ -24,6 +24,8 @@ Universe item docs are dumb
 crate docs: s/map/run
 
 # Polish
+linkage::Moved has never been used and can be deleted.
+
 we can remove universe.kmap() now that we have eval().
 the firewall in table! can probably go away now that we have the 'mod types'
 
@@ -36,12 +38,13 @@ column::set_data() should be unsafe, and its fields should be private, and it sh
     But OTOH, there's also Serde, sooooo....
     Oh! But our columns are usually wrapped in WriteColumn or w/e, so maybe that could make it nicer...
 
-Add "ImmediateEdit" so you can say `Immediate<my_table::edit::Foo>`. It would allow editing a column without there being any question of logging. This would maybe allow some sweet SIMD optimizations or something. It would have to assert, during Extract, that there were no trackers.
+Add "ImmediateEdit" so you can say `Immediate<my_table::edit::Foo>`. It would allow editing a column without there being any question of logging. This would maybe allow some sweet SIMD optimizations or something. It would have to assert, during Extract, that there are no trackers.
 impl Extract for T where T: Property + Copy
 Delete 'kmap'; eval's better.
 s/remove/delete. The distinction isn't helpful.
 s/is_tracked/is_tracking. Or just 'tracked' or 'tracking'?
 Running a Kernel is far too much work for the computer.
+a way to allocate a bunch of IDs that are compatible with another RunList, so that you can serialize contiguous stuff safely
 
 # Consistency/Ordering Issue
 We acquire a bunch of locks.
@@ -102,6 +105,8 @@ Maybe it's a "BufferedMut".
     and any of these can happen in any order,
     and the Universe does its reactions between each step.
     Ooh! Maybe it's just like an external thingie.
+
+[this issue is somewhat specific to my game] $table::Range is deceptive if it gets serialized. Something might refer to a range of slots, but that range could get broken up during deserialization. So maybe it would be best to make `pub(in super) type Range = ...` so that it's more work to shoot yourself in the foot.
 
 # Things
 Facts (Events). You can have Emit<Fact> (or Log<Fact> ?)

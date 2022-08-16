@@ -16,7 +16,7 @@ pub struct warehouses {
 }
 
 #[v9::property]
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct window {
     instance: u32,
 }

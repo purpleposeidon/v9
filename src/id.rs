@@ -644,13 +644,13 @@ unsafe impl<'a, M: TableMarker> ExtractOwned for &'a IdList<M> {
     type Ty = IdList<M>;
     const ACC: Access = Access::Read;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self {
-        let got: &dyn Any = rez.take_ref();
+        let got: &dyn AnyDebug = rez.take_ref();
         got.downcast_ref().unwrap()
     }
 }
 unsafe impl<'a, M: TableMarker> Extract for &'a mut IdList<M> {
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-        f(TypeId::of::<IdList<M>>(), Access::Write)
+    fn each_resource(f: &mut dyn FnMut(Ty, Access)) {
+        f(Ty::of::<IdList<M>>(), Access::Write)
     }
     type Owned = Self;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {

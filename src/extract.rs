@@ -35,7 +35,7 @@ pub enum Access {
 pub unsafe trait Extract: Sized {
     /// List the type & access requirement needed to do the extraction.
     /// This function must have constant behavior; it is unsound otherwise.
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access));
+    fn each_resource(f: &mut dyn FnMut(Ty, Access));
     type Owned;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned;
     unsafe fn convert(universe: &Universe, owned: *mut Self::Owned) -> Self;
@@ -56,7 +56,7 @@ unsafe impl<E: Extract> Cleaner<E> for () {
 
 /// Helper trait.
 pub unsafe trait ExtractOwned {
-    type Ty: Any;
+    type Ty: AnyDebug;
     const ACC: Access;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self;
 }
@@ -64,8 +64,8 @@ unsafe impl<X> Extract for X
 where
     X: ExtractOwned,
 {
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-        f(TypeId::of::<X::Ty>(), X::ACC)
+    fn each_resource(f: &mut dyn FnMut(Ty, Access)) {
+        f(Ty::of::<X::Ty>(), X::ACC)
     }
     type Owned = Option<X>;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
@@ -81,30 +81,30 @@ where
 #[derive(Debug)]
 pub struct Rez {
     // FIXME: We don't actually need 'static on this, right?
-    vals: &'static [(*mut dyn Any, Access)],
+    vals: &'static [(*mut dyn AnyDebug, Access)],
 }
 impl Rez {
-    pub(crate) fn new(vals: &'static [(*mut dyn Any, Access)]) -> Self {
+    pub(crate) fn new(vals: &'static [(*mut dyn AnyDebug, Access)]) -> Self {
         Rez { vals }
     }
-    pub unsafe fn take_ref<'b>(&mut self) -> &'b dyn Any {
-        let (v, a): (*mut dyn Any, Access) = self.vals[0];
+    pub unsafe fn take_ref<'b>(&mut self) -> &'b dyn AnyDebug {
+        let (v, a): (*mut dyn AnyDebug, Access) = self.vals[0];
         assert_eq!(a, Access::Read, "asked for Access::Write but used take_ref");
         self.vals = &self.vals[1..];
         &mut *v
     }
-    pub unsafe fn take_mut<'b>(&mut self) -> &'b mut dyn Any {
-        let (v, a): (*mut dyn Any, Access) = self.vals[0];
+    pub unsafe fn take_mut<'b>(&mut self) -> &'b mut dyn AnyDebug {
+        let (v, a): (*mut dyn AnyDebug, Access) = self.vals[0];
         assert_eq!(a, Access::Write, "asked for Access::Read but used take_mut");
         self.vals = &self.vals[1..];
         &mut *v
     }
-    pub unsafe fn take_ref_downcast<'b, T: Any>(&mut self) -> &'b T {
-        let got: &dyn Any = self.take_ref();
+    pub unsafe fn take_ref_downcast<'b, T: AnyDebug>(&mut self) -> &'b T {
+        let got: &dyn AnyDebug = self.take_ref();
         got.downcast_ref().unwrap()
     }
-    pub unsafe fn take_mut_downcast<'b, T: Any>(&mut self) -> &'b mut T {
-        let got: &mut dyn Any = self.take_mut();
+    pub unsafe fn take_mut_downcast<'b, T: AnyDebug>(&mut self) -> &'b mut T {
+        let got: &mut dyn AnyDebug = self.take_mut();
         got.downcast_mut().unwrap()
     }
     // FIXME: Explain why we use the 'static lie.

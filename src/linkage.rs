@@ -5,7 +5,7 @@ use crate::kernel::{Kernel, KernelArg, KernelFn};
 use crate::prelude_lib::*;
 use crate::id::IdRange;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::any::{Any, TypeId};
+use ezty::{Ty, AnyDebug};
 use std::mem;
 
 pub type IndexOf<C> = ColumnIndex<
@@ -17,16 +17,17 @@ pub trait LiftColumn {
     type M;
     type T;
 }
-impl<M: TableMarker, T> LiftColumn for Column<M, T> {
+impl<M: TableMarker, T: AnyDebug> LiftColumn for Column<M, T> {
     type M = M;
     type T = T;
 }
 
 
-pub struct ColumnIndex<M: TableMarker, T: Ord> {
+#[derive(Debug)]
+pub struct ColumnIndex<M: TableMarker, T: AnyDebug + Ord> {
     pub map: BTreeMap<(T, Id<M>), ()>,
 }
-impl<M: TableMarker, T: Ord + Clone> ColumnIndex<M, T> {
+impl<M: TableMarker, T: AnyDebug + Ord + Clone> ColumnIndex<M, T> {
     pub fn full_range(t: T) -> StdRange<(T, Id<M>)> {
         (t.clone(), Id(M::RawId::ZERO))..(t, Id(M::RawId::LAST))
     }
@@ -45,16 +46,16 @@ impl<M: TableMarker, T: Ord + Clone> ColumnIndex<M, T> {
             .map(|((_, i), _)| *i)
     }
 }
-impl<M: TableMarker, T: Ord> Default for ColumnIndex<M, T> {
+impl<M: TableMarker, T: AnyDebug + Ord> Default for ColumnIndex<M, T> {
     fn default() -> Self {
         ColumnIndex {
             map: BTreeMap::new(),
         }
     }
 }
-unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a ColumnIndex<M, T> {
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-        f(TypeId::of::<ColumnIndex<M, T>>(), Access::Read)
+unsafe impl<'a, M: TableMarker, T: AnyDebug + Ord> Extract for &'a ColumnIndex<M, T> {
+    fn each_resource(f: &mut dyn FnMut(Ty, Access)) {
+        f(Ty::of::<ColumnIndex<M, T>>(), Access::Read)
     }
     type Owned = Self;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
@@ -65,9 +66,9 @@ unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a 
     }
     type Cleanup = ();
 }
-unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a mut ColumnIndex<M, T> {
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
-        f(TypeId::of::<ColumnIndex<M, T>>(), Access::Write)
+unsafe impl<'a, M: TableMarker, T: AnyDebug + Ord> Extract for &'a mut ColumnIndex<M, T> {
+    fn each_resource(f: &mut dyn FnMut(Ty, Access)) {
+        f(Ty::of::<ColumnIndex<M, T>>(), Access::Write)
     }
     type Owned = Self;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
@@ -81,13 +82,14 @@ unsafe impl<'a, M: TableMarker, T: 'static + Send + Sync + Ord> Extract for &'a 
 impl Universe {
     pub fn add_index<M: TableMarker, T>(&mut self)
     where
-        T: 'static + Send + Sync + Ord + Copy,
+        M: TableMarker,
+        T: AnyDebug + Ord + Copy,
     {
         // 1. Add the index.
         // Col<M, T>
         // index: Map<(T, Id<M>)>
         self.add_mut(
-            TypeId::of::<ColumnIndex<M, T>>(),
+            Ty::of::<ColumnIndex<M, T>>(),
             ColumnIndex::<M, T>::default(),
         );
         // Next we add handlers for each event:
@@ -147,7 +149,7 @@ impl Universe {
     where
         F: KernelFn<Dump, ()>,
         F: 'static + Send + Sync,
-        E: Any + Send + Sync,
+        E: AnyDebug,
         Dump: Send + Sync,
     {
         let mut kernel = Kernel::new(f);
@@ -162,7 +164,7 @@ impl Universe {
     where
         F: KernelFn<Dump, ()>,
         F: 'static + Send + Sync,
-        E: Any + Send + Sync,
+        E: AnyDebug,
         Dump: Send + Sync,
     {
         let mut kernel = Kernel::new(f);
@@ -188,7 +190,7 @@ impl<FM: TableMarker> Id<FM> {
         Some(FM::NAME)
     }
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
-        if TypeId::of::<LM>() == TypeId::of::<FM>() {
+        if Ty::of::<LM>() == Ty::of::<FM>() {
             // You're on your own.
             return;
         }
@@ -249,7 +251,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
         Some(FM::NAME)
     }
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
-        if TypeId::of::<LM>() == TypeId::of::<FM>() {
+        if Ty::of::<LM>() == Ty::of::<FM>() {
             // You're on your own.
             return;
         }
@@ -327,49 +329,52 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
 /// Holds a bunch of `RunList`s.
 #[derive(Debug, Default)]
 pub struct Selection {
-    pub seen: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
-    pub selection_order: Vec<TypeId>,
-    pub exclude: HashSet<TypeId>,
+    pub seen: HashMap<Ty, Box<dyn AnyDebug>>,
+    pub selection_order: Vec<Ty>,
+    pub exclude: HashSet<Ty>,
 }
 impl Selection {
     pub fn get<M: TableMarker>(&self) -> Option<&RunList<M>> {
-        let ty = TypeId::of::<M>();
+        let ty = Ty::of::<M>();
         self.seen.get(&ty)
-            .and_then(|a| a.downcast_ref())
+            .and_then(|a: &Box<dyn AnyDebug>| {
+                let a: &dyn AnyDebug = &*a;
+                a.downcast_ref()
+            })
     }
     pub fn ordered<M: TableMarker>(&mut self) -> Box<RunList<M>> {
-        let ty = TypeId::of::<M>();
+        let ty = Ty::of::<M>();
         self.seen.remove(&ty)
             .and_then(|a| {
-                (a as Box<dyn Any>).downcast().ok()
+                (a as Box<dyn AnyDebug>).downcast().ok()
             })
             .unwrap_or_default()
     }
     pub fn deliver_ids<M: TableMarker>(&mut self, ids: Box<RunList<M>>) {
-        let ty = TypeId::of::<M>();
+        let ty = Ty::of::<M>();
         debug_assert!(!self.excluded(ty));
         self.seen.insert(ty, ids);
         self.selection_order.push(ty);
     }
     pub fn from<FM: TableMarker>(sel: RunList<FM>) -> Self {
         let mut seen = HashMap::new();
-        let ty = TypeId::of::<FM>();
-        seen.insert(ty, Box::new(sel) as Box<dyn Any + Send + Sync>);
+        let ty = Ty::of::<FM>();
+        seen.insert(ty, Box::new(sel) as Box<dyn AnyDebug>);
         Selection { seen, .. Self::default() }
     }
-    pub fn add_stub<T: Any>(&mut self) {
-        let ty = TypeId::of::<T>();
+    pub fn add_stub<T: AnyDebug>(&mut self) {
+        let ty = Ty::of::<T>();
         debug_assert!(!self.excluded(ty));
         self.seen.insert(ty, Box::new(()));
         self.selection_order.push(ty);
     }
-    pub fn deselect(&mut self, ty: TypeId) {
+    pub fn deselect(&mut self, ty: Ty) {
         self.seen.remove(&ty);
         self.selection_order.retain(|&t| t != ty);
     }
-    pub fn excluded(&self, ty: TypeId) -> bool { self.exclude.contains(&ty) }
+    pub fn excluded(&self, ty: Ty) -> bool { self.exclude.contains(&ty) }
 }
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Select<FM> {
     pub selection: Selection,
     pub foreign_marker: FM,
@@ -382,10 +387,10 @@ impl<FM: TableMarker> Select<FM> {
         }
     }
     pub fn excluded(&self) -> bool {
-        self.selection.exclude.contains(&TypeId::of::<Self>())
+        self.selection.exclude.contains(&Ty::of::<Self>())
     }
     pub fn deliver<LM: TableMarker>(&mut self, universe: &Universe, ids: Box<RunList<LM>>) {
-        if self.selection.excluded(TypeId::of::<LM>()) { return; }
+        if self.selection.excluded(Ty::of::<LM>()) { return; }
         self.selection.deliver_ids(ids);
         if !universe.is_tracked::<Select<LM>>() { return; }
         let mut sub: Select<LM> = Default::default();

@@ -16,7 +16,7 @@ pub enum LockState {
 
 pub struct Locked {
     // This is stuff is public due to our 'no encapsulation' policy.
-    pub obj: UnsafeCell<Box<dyn Any>>,
+    pub obj: UnsafeCell<Box<dyn AnyDebug>>,
     pub state: LockState,
     pub name: Name,
 }
@@ -26,7 +26,7 @@ impl fmt::Debug for Locked {
     }
 }
 impl Locked {
-    pub fn new(obj: Box<dyn Any>, name: Name) -> Box<Self> {
+    pub fn new(obj: Box<dyn AnyDebug>, name: Name) -> Box<Self> {
         Box::new(Locked {
             obj: UnsafeCell::new(obj),
             state: LockState::Open,
@@ -85,9 +85,9 @@ impl Locked {
         }
     }
     #[allow(clippy::borrowed_box)]
-    pub unsafe fn contents(&mut self) -> *mut dyn Any {
-        let obj: *mut Box<dyn Any> = self.obj.get();
-        let obj: &mut Box<dyn Any> = &mut *obj;
+    pub unsafe fn contents(&mut self) -> *mut dyn AnyDebug {
+        let obj: *mut Box<dyn AnyDebug> = self.obj.get();
+        let obj: &mut Box<dyn AnyDebug> = &mut *obj;
         obj.deref_mut()
     }
     pub unsafe fn read(&mut self) -> GuardRef {
@@ -98,7 +98,7 @@ impl Locked {
         self.acquire(Access::Write);
         GuardMut { lock: self }
     }
-    pub fn into_inner(mut self) -> Box<dyn Any> {
+    pub fn into_inner(mut self) -> Box<dyn AnyDebug> {
         unsafe {
             self.acquire(Access::Write);
             let stuff = self.contents();
@@ -128,31 +128,31 @@ pub struct GuardMut {
     lock: *mut Locked,
 }
 impl Deref for GuardRef {
-    type Target = dyn Any;
+    type Target = dyn AnyDebug;
     #[allow(clippy::borrowed_box)]
-    fn deref(&self) -> &dyn Any {
+    fn deref(&self) -> &dyn AnyDebug {
         unsafe {
             let lock: &Locked = &*self.lock;
-            let obj: *mut Box<dyn Any> = lock.obj.get();
-            let obj: &Box<dyn Any> = &*obj;
+            let obj: *mut Box<dyn AnyDebug> = lock.obj.get();
+            let obj: &Box<dyn AnyDebug> = &*obj;
             obj.deref()
         }
     }
 }
 impl Deref for GuardMut {
-    type Target = dyn Any;
+    type Target = dyn AnyDebug;
     #[allow(clippy::borrowed_box)]
-    fn deref(&self) -> &dyn Any {
+    fn deref(&self) -> &dyn AnyDebug {
         unsafe {
             let lock: &Locked = &*self.lock;
-            let obj: *mut Box<dyn Any> = lock.obj.get();
-            let obj: &Box<dyn Any> = &*obj;
+            let obj: *mut Box<dyn AnyDebug> = lock.obj.get();
+            let obj: &Box<dyn AnyDebug> = &*obj;
             obj.deref()
         }
     }
 }
 impl DerefMut for GuardMut {
-    fn deref_mut(&mut self) -> &mut dyn Any {
+    fn deref_mut(&mut self) -> &mut dyn AnyDebug {
         unsafe {
             let lock: &mut Locked = &mut *self.lock;
             &mut *lock.contents()

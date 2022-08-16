@@ -1,6 +1,7 @@
 #[macro_use] extern crate v9;
 
 
+#[derive(Debug)]
 pub struct Meh {
     val: i32,
 }
@@ -10,7 +11,7 @@ decl_property! { MY_PROPERTY: Meh = Meh { val: 42 }; }
 
 decl_property! { ASSERT_DOESNT_COMPILE_HAS_NICE_ERROR: ~i32 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Param<T> {
     _val: T,
 }

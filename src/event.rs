@@ -2,6 +2,8 @@
 
 use crate::column::Column;
 use crate::prelude_lib::*;
+use std::fmt;
+use ezty::type_name;
 
 pub type Handler<E> = Box<dyn FnMut(&Universe, &mut E) + Send + Sync>;
 
@@ -10,6 +12,11 @@ pub type Handler<E> = Box<dyn FnMut(&Universe, &mut E) + Send + Sync>;
 #[derive(Default)]
 pub struct Tracker<E: 'static + Send + Sync> {
     pub handlers: Vec<Handler<E>>,
+}
+impl<E: 'static + Send + Sync> fmt::Debug for Tracker<E> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Tracker<{}>({} handlers)", type_name::<E>(), self.handlers.len())
+    }
 }
 impl<E: 'static + Send + Sync> Tracker<E> {
     pub fn new() -> Self {
@@ -20,12 +27,12 @@ impl<E: 'static + Send + Sync> Tracker<E> {
 }
 impl Universe {
     pub fn submit_event<E: 'static + Send + Sync>(&self, e: &mut E) {
-        let ty = &TypeId::of::<Tracker<E>>();
+        let ty = &Ty::of::<Tracker<E>>();
         let event = unsafe {
             let mut objects = self.objects.write().unwrap();
             if let Some(locked) = objects.get_mut(ty) {
                 locked.acquire(Access::Write);
-                let obj: &mut dyn Any = &mut *locked.contents();
+                let obj: &mut dyn AnyDebug = &mut *locked.contents();
                 obj.downcast_mut::<Tracker<E>>().unwrap()
             } else {
                 panic!("an event should not be created if there are no handlers");
@@ -44,27 +51,27 @@ impl Universe {
             .release(Access::Write);
     }
     pub fn is_tracked<E: 'static + Send + Sync>(&self) -> bool {
-        let ty = &TypeId::of::<Tracker<E>>();
+        let ty = &Ty::of::<Tracker<E>>();
         let objects = self.objects.read().unwrap();
         objects.get(ty).is_some()
     }
-    /// `owner` should be `TypeId::of::<LocalTableMarker>()`.
+    /// `owner` should be `Ty::of::<LocalTableMarker>()`.
     pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &mut E) + 'static + Send + Sync>(&self, f: F) {
         self.add_tracker_box(Box::new(f))
     }
     fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<dyn FnMut(&Universe, &mut E) + Send + Sync>) {
         // Can't use with() because object may not exist.
-        let ty = TypeId::of::<Tracker<E>>();
+        let ty = Ty::of::<Tracker<E>>();
         let mut objects = self.objects.write().unwrap();
         let obj = objects
             .entry(ty)
             .or_insert_with(|| Locked::new(
                 Box::new(Tracker::<E>::new()),
-                std::any::type_name::<Tracker<E>>(),
+                type_name::<Tracker<E>>(),
             ));
         obj.acquire(Access::Write);
         unsafe {
-            let obj: &mut dyn Any = &mut *obj.contents();
+            let obj: &mut dyn AnyDebug = &mut *obj.contents();
             let obj: &mut Tracker<E> = obj.downcast_mut().unwrap();
             obj.handlers.push(f);
         }
@@ -209,28 +216,32 @@ mod test_tracking {
 }
 
 // FIXME: Rename to `Push, Edit, Move, Delete` ?
+#[derive(Debug)]
 pub struct Pushed<M: TableMarker> {
     pub ids: RunList<M>,
 }
-pub struct Edited<M: TableMarker, T: 'static> {
+#[derive(Debug)]
+pub struct Edited<M: TableMarker, T: AnyDebug> {
     pub(crate) col: *const Column<M, T>,
     pub new: Vec<(Id<M>, T)>,
     // Or this could be split into
     //    new_ids: RunList<M>,
     //    new_values: Vec<T>,
 }
-unsafe impl<M: TableMarker, T: 'static> Send for Edited<M, T> {}
-unsafe impl<M: TableMarker, T: 'static> Sync for Edited<M, T> {}
-impl<M: TableMarker, T> Edited<M, T> {
+unsafe impl<M: TableMarker, T: AnyDebug> Send for Edited<M, T> {}
+unsafe impl<M: TableMarker, T: AnyDebug> Sync for Edited<M, T> {}
+impl<M: TableMarker, T: AnyDebug> Edited<M, T> {
     pub fn col<'a>(&'a self) -> &'a Column<M, T> {
         unsafe { &*self.col }
     }
 }
 
+#[derive(Debug)]
 pub struct Moved<M: TableMarker> {
     /// (old, new)
     pub ids: Vec<(Id<M>, Id<M>)>,
 }
+#[derive(Debug)]
 pub struct Deleted<M: TableMarker> {
     pub ids: RunList<M>,
 }

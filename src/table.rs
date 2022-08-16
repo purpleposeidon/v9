@@ -5,7 +5,7 @@ use crate::prelude_lib::*;
 #[derive(Debug)]
 pub struct TableHeader {
     pub name: Name,
-    pub marker: TypeId,
+    pub marker: Ty,
     pub columns: Vec<ColumnHeader>,
 }
 pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::Debug {
@@ -16,8 +16,8 @@ pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::
 
 #[derive(Debug, Clone)]
 pub struct ColumnHeader {
-    pub column_type: TypeId,
-    pub element_type: TypeId,
+    pub column_type: Ty,
+    pub element_type: Ty,
     pub name: Name,
     pub foreign_table: Option<Name>,
 }
@@ -417,10 +417,10 @@ macro_rules! decl_table {
                     fn header() -> $crate::prelude_macro::TableHeader {
                         $crate::prelude_macro::TableHeader {
                             name: Self::NAME,
-                            marker: $crate::prelude_macro::TypeId::of::<super::Marker>(),
+                            marker: $crate::prelude_macro::Ty::of::<super::Marker>(),
                             columns: vec![$($crate::prelude_macro::ColumnHeader {
-                                column_type: $crate::prelude_macro::TypeId::of::<self::types::$cn>(),
-                                element_type: $crate::prelude_macro::TypeId::of::<self::own::$cn>(),
+                                column_type: $crate::prelude_macro::Ty::of::<self::types::$cn>(),
+                                element_type: $crate::prelude_macro::Ty::of::<self::own::$cn>(),
                                 name: super::names::$cn,
                                 foreign_table: {
                                     type T = $cty;
@@ -433,16 +433,16 @@ macro_rules! decl_table {
                 impl $crate::prelude_macro::Register for super::Marker {
                     fn register(universe: &mut $crate::prelude_macro::Universe) {
                         universe.add_mut(
-                            $crate::prelude_macro::TypeId::of::<super::Marker>(),
+                            $crate::prelude_macro::Ty::of::<super::Marker>(),
                             <Self as $crate::prelude_macro::TableMarker>::header(),
                         );
                         universe.add_mut(
-                            $crate::prelude_macro::TypeId::of::<$crate::prelude_macro::IdList<super::Marker>>(),
+                            $crate::prelude_macro::Ty::of::<$crate::prelude_macro::IdList<super::Marker>>(),
                             $crate::prelude_macro::IdList::<super::Marker>::default(),
                         );
                         // Interesting that we can't have duplicate types, hmm?
                         $(universe.add_mut(
-                                $crate::prelude_macro::TypeId::of::<$crate::prelude_macro::Column<super::Marker, $cty>>(),
+                                $crate::prelude_macro::Ty::of::<$crate::prelude_macro::Column<super::Marker, $cty>>(),
                                 $crate::prelude_macro::Column::<super::Marker, $cty>::new(),
                         );)*
                         $({

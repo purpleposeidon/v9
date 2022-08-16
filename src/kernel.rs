@@ -11,9 +11,9 @@ impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
         self.run_return::<()>(kernel)
     }
-    pub fn run_return<Ret: Any>(&self, kernel: &mut Kernel) -> Ret {
+    pub fn run_return<Ret: AnyDebug>(&self, kernel: &mut Kernel) -> Ret {
         let mut ret: Option<Ret> = None;
-        self.run_and_return_into(kernel, (&mut ret) as &mut dyn Any);
+        self.run_and_return_into(kernel, (&mut ret) as &mut dyn AnyDebug);
         ret.expect("return value not set")
     }
     unsafe fn prepare_buffer(&self, name: &str, buffer: &mut LockBuffer) {
@@ -38,9 +38,9 @@ impl Universe {
             for &mut (lock, acc) in locks {
                 let lock: &mut Locked = &mut *lock;
                 lock.acquire(acc);
-                let obj: *mut dyn Any = lock.contents();
-                let obj: &mut dyn Any = &mut *obj;
-                let obj: *mut dyn Any = obj;
+                let obj: *mut dyn AnyDebug = lock.contents();
+                let obj: &mut dyn AnyDebug = &mut *obj;
+                let obj: *mut dyn AnyDebug = obj;
                 vals.push((obj, acc));
             }
             break;
@@ -51,10 +51,10 @@ impl Universe {
         buffer: &mut LockBuffer,
         func: F,
         name: &str,
-        return_value: &mut dyn Any,
+        return_value: &mut dyn AnyDebug,
     )
     where
-        F: FnOnce(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()),
+        F: FnOnce(&Universe, Rez, &mut dyn AnyDebug, &mut dyn FnMut()),
     {
         let rez = Rez::new(mem::transmute(&buffer.vals[..]));
         let resources = &buffer.resources;
@@ -91,7 +91,7 @@ impl Universe {
             },
         }
     }
-    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn Any) {
+    pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn AnyDebug) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
             self.prepare_buffer(&kernel.name, &mut kernel.buffer);
@@ -114,7 +114,7 @@ impl Universe {
             let name = std::any::type_name::<K>();
             self.prepare_buffer(name, &mut buffer);
             let ret = Cell::new(Option::<Ret>::None);
-            let run = |universe: &Universe, rez: Rez, _ret: &mut dyn Any, cleanup: &mut dyn FnMut()| {
+            let run = |universe: &Universe, rez: Rez, _ret: &mut dyn AnyDebug, cleanup: &mut dyn FnMut()| {
                 let got = k.run(universe, rez, cleanup);
                 ret.set(Some(got));
             };
@@ -135,7 +135,7 @@ impl Universe {
     }
     pub fn kmap_return<Ret, Dump, K>(&self, k: K) -> Ret
     where
-        Ret: Any,
+        Ret: AnyDebug,
         K: KernelFn<Dump, Ret>,
         K: 'static + Send + Sync,
         Dump: Send + Sync,
@@ -153,7 +153,7 @@ impl Universe {
 /// 3. The return value is appropriate. `Kernel` itself has no restrictions on the return type,
 ///    however:
 ///    - `kmap` requires the return value be `()`.
-///    - `kmap_return` and `run_return` requires `Any`, which means it must be `'static`.
+///    - `kmap_return` and `run_return` requires `AnyDebug`, which means it must be `'static`.
 pub unsafe trait KernelFn<Dump, Ret>: EachResource<Dump, Ret> {
     unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
 }
@@ -164,21 +164,21 @@ pub unsafe trait KernelFnOnce<Dump, Ret>: EachResource<Dump, Ret> {
 
 pub unsafe trait EachResource<Dump, Ret> {
     // FIXME: It'd be nice to give a return value. However we can't because `Kernel` is dynamic.
-    // FIXME: What if we passed in `&mut Any=Option<R>`?
-    fn each_resource(f: &mut dyn FnMut(TypeId, Access));
+    // FIXME: What if we passed in `&mut AnyDebug=Option<R>`?
+    fn each_resource(f: &mut dyn FnMut(Ty, Access));
 }
 
 /// Works like a `Box<KernelFn>`.
 #[must_use]
 pub struct Kernel {
-    run: Box<dyn FnMut(&Universe, Rez, &mut dyn Any, &mut dyn FnMut()) + 'static + Send + Sync>,
+    run: Box<dyn FnMut(&Universe, Rez, &mut dyn AnyDebug, &mut dyn FnMut()) + 'static + Send + Sync>,
     buffer: LockBuffer,
     pub name: Cow<'static, str>,
 }
 struct LockBuffer {
-    resources: Vec<(TypeId, Access)>,
+    resources: Vec<(Ty, Access)>,
     locks: Vec<(*mut Locked, Access)>,
-    vals: Vec<(*mut dyn Any, Access)>,
+    vals: Vec<(*mut dyn AnyDebug, Access)>,
 }
 impl LockBuffer {
     fn new<Dump, Ret, K>() -> Self
@@ -187,7 +187,7 @@ impl LockBuffer {
     {
         Self::new0(K::each_resource)
     }
-    fn new0(each_resource: fn(&mut dyn FnMut(TypeId, Access))) -> Self {
+    fn new0(each_resource: fn(&mut dyn FnMut(Ty, Access))) -> Self {
         let mut resources = vec![];
         let mut write = HashSet::new();
         let mut any = HashSet::new();
@@ -235,7 +235,7 @@ unsafe impl Sync for LockBuffer {}
 impl Kernel {
     pub fn new<Dump, Ret, K>(mut k: K) -> Self
     where
-        Ret: Any,
+        Ret: AnyDebug,
         K: KernelFn<Dump, Ret>,
         K: 'static + Send + Sync,
         Dump: Send + Sync,
@@ -252,7 +252,7 @@ impl Kernel {
         }
     }
     /// A kernel may have arguments that the `Universe` doesn't know about.
-    /// Any such arguments must be at the front of the parameter list,
+    /// AnyDebug such arguments must be at the front of the parameter list,
     /// and must be pushed in the same order as the parameters.
     /// The parameters themselves must be wrapped in `KernelArg<&T>`.
     /// So, the kernel's parameters must be `|t: KernelArg<&T>, m: KernelArg<&mut M>, ...|`,
@@ -271,22 +271,22 @@ impl Kernel {
 }
 pub struct PushArgs<'a>(Option<&'a mut Kernel>);
 impl<'a> PushArgs<'a> {
-    fn push(&mut self, obj: *mut dyn Any, access: Access) {
+    fn push(&mut self, obj: *mut dyn AnyDebug, access: Access) {
         self.0.as_mut().unwrap().buffer.vals.push((obj, access));
     }
-    pub fn arg<'b>(mut self, obj: &'b dyn Any) -> PushArgs<'b>
+    pub fn arg<'b>(mut self, obj: &'b dyn AnyDebug) -> PushArgs<'b>
     where
         'a: 'b,
     {
-        let obj = obj as *const dyn Any as *mut dyn Any;
+        let obj = obj as *const dyn AnyDebug as *mut dyn AnyDebug;
         self.push(obj, Access::Read);
         self
     }
-    pub fn arg_mut<'b>(mut self, obj: &'b mut dyn Any) -> PushArgs<'b>
+    pub fn arg_mut<'b>(mut self, obj: &'b mut dyn AnyDebug) -> PushArgs<'b>
     where
         'a: 'b,
     {
-        let obj = obj as *mut dyn Any;
+        let obj = obj as *mut dyn AnyDebug;
         self.push(obj, Access::Write);
         self
     }
@@ -294,7 +294,7 @@ impl<'a> PushArgs<'a> {
         let k = self.0.take().unwrap();
         universe.run(k)
     }
-    pub fn run_return<Ret: Any>(mut self, universe: &Universe) -> Ret {
+    pub fn run_return<Ret: AnyDebug>(mut self, universe: &Universe) -> Ret {
         let k = self.0.take().unwrap();
         universe.run_return::<Ret>(k)
     }
@@ -316,8 +316,8 @@ impl<'a> Drop for PushArgs<'a> {
 pub struct KernelArg<T> {
     val: T,
 }
-unsafe impl<'a, T: Any> Extract for KernelArg<&'a T> {
-    fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
+unsafe impl<'a, T: AnyDebug> Extract for KernelArg<&'a T> {
+    fn each_resource(_f: &mut dyn FnMut(Ty, Access)) {}
     type Owned = &'a T;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
         rez.take_ref_downcast()
@@ -327,8 +327,8 @@ unsafe impl<'a, T: Any> Extract for KernelArg<&'a T> {
     }
     type Cleanup = ();
 }
-unsafe impl<'a, T: Any> Extract for KernelArg<&'a mut T> {
-    fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
+unsafe impl<'a, T: AnyDebug> Extract for KernelArg<&'a mut T> {
+    fn each_resource(_f: &mut dyn FnMut(Ty, Access)) {}
     type Owned = &'a mut T;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
         rez.take_mut_downcast()
@@ -357,7 +357,7 @@ macro_rules! impl_kernel {
             X: FnOnce($($A),*) -> Ret,
             $($A: Extract,)*
         {
-            fn each_resource(f: &mut dyn FnMut(TypeId, Access)) {
+            fn each_resource(f: &mut dyn FnMut(Ty, Access)) {
                 $(
                     $A::each_resource(f);
                 )*
@@ -411,7 +411,7 @@ unsafe impl<X, Ret> EachResource<(), Ret> for X
 where
     X: FnMut() -> Ret,
 {
-    fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
+    fn each_resource(_f: &mut dyn FnMut(Ty, Access)) {}
 }
 unsafe impl<X, Ret> KernelFn<(), Ret> for X
 where

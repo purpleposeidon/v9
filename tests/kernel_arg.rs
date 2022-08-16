@@ -18,7 +18,7 @@ impl<'a, 'b> Scary<'a, 'b> {
 }
 
 unsafe impl<'e, 'a, 'b> Extract for &'e mut Scary<'a, 'b> {
-    fn each_resource(_f: &mut dyn FnMut(TypeId, Access)) {}
+    fn each_resource(_f: &mut dyn FnMut(Ty, Access)) {}
     type Owned = &'e mut Scary<'static, 'static>;
     unsafe fn extract(_universe: &Universe, rez: &mut Rez) -> Self::Owned {
         rez.take_mut_downcast()

@@ -10,8 +10,8 @@ pub trait PropertyMarker: 'static + Register + Send + Sync {
 #[derive(Debug)]
 pub struct PropertyHeader {
     pub name: Name,
-    pub property_type: TypeId,
-    pub inner_type: TypeId,
+    pub property_type: Ty,
+    pub inner_type: Ty,
 }
 
 
@@ -131,7 +131,7 @@ macro_rules! decl_property {
                 impl Register for Prop {
                     fn register(universe: &mut Universe) {
                         universe.add_mut(
-                            TypeId::of::<Prop>(),
+                            Ty::of::<Prop>(),
                             localized_init_fn(),
                         );
                     }
@@ -141,8 +141,8 @@ macro_rules! decl_property {
                     fn header() -> PropertyHeader {
                         PropertyHeader {
                             name: Self::NAME,
-                            property_type: TypeId::of::<Self>(),
-                            inner_type: TypeId::of::<Type>(),
+                            property_type: Ty::of::<Self>(),
+                            inner_type: Ty::of::<Type>(),
                         }
                     }
                 }
@@ -182,7 +182,7 @@ macro_rules! decl_property {
     };
 }
 
-pub unsafe trait Property: Any {}
+pub unsafe trait Property: AnyDebug {}
 unsafe impl<'a, X: Property> ExtractOwned for &'a X {
     type Ty = X;
     const ACC: Access = Access::Read;
@@ -200,7 +200,7 @@ unsafe impl<'a, X: Property> ExtractOwned for &'a mut X {
 
 #[doc(hidden)]
 pub mod prelude {
-    pub use crate::prelude_lib::{Deref, DerefMut, Name, Any, TypeId, Universe};
+    pub use crate::prelude_lib::{Deref, DerefMut, Name, AnyDebug, Ty, Universe};
     pub use crate::prelude_lib::{Property, PropertyHeader, PropertyMarker, Register};
 
     #[doc(hidden)]
@@ -241,6 +241,7 @@ mod test {
 #[cfg(test)]
 #[allow(unused_imports)]
 mod test_compiles {
+    #[derive(Debug)]
     #[allow(dead_code)]
     pub struct Meh {
         val: i32,
