@@ -70,9 +70,9 @@
 //! ([Another example.](macro.decl_table.html#usage))
 //!
 //! # Design
-//! A [`Universe`] works like a `HashMap<Ty, Any>`.
+//! A [`Universe`] works like a `HashMap<TypeId, Any>`.
 //! A single instance of any type can be inserted into the universe.
-// (...altho the Ty key need not match the type_id of the Any...)
+// (...altho the TypeId key need not match the type_id of the Any...)
 //! Changes can then be made by `run`ning a [`Kernel`].
 //! A `Kernel` is any closure whose arguments all implement [`Extract`],
 //! a trait that works like `fn extract(&Universe) -> Self`.

@@ -252,7 +252,7 @@ impl Kernel {
         }
     }
     /// A kernel may have arguments that the `Universe` doesn't know about.
-    /// AnyDebug such arguments must be at the front of the parameter list,
+    /// Any such arguments must be at the front of the parameter list,
     /// and must be pushed in the same order as the parameters.
     /// The parameters themselves must be wrapped in `KernelArg<&T>`.
     /// So, the kernel's parameters must be `|t: KernelArg<&T>, m: KernelArg<&mut M>, ...|`,
