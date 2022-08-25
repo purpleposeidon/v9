@@ -1,6 +1,6 @@
 [package]
 name = "v9"
-version = "0.1.47"
+version = "0.1.49"
 authors = ["neptunepink <purpleposeidon@gmail.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"

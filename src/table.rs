@@ -421,8 +421,8 @@ macro_rules! decl_table {
                             name: Self::NAME,
                             marker: $crate::prelude_macro::Ty::of::<super::Marker>(),
                             columns: vec![$($crate::prelude_macro::ColumnHeader {
-                                column_type: $crate::prelude_macro::Ty::of::<self::types::$cn>(),
-                                element_type: $crate::prelude_macro::Ty::of::<self::own::$cn>(),
+                                column_type: $crate::prelude_macro::Ty::of::<self::own::$cn>(),
+                                element_type: $crate::prelude_macro::Ty::of::<self::types::$cn>(),
                                 name: super::names::$cn,
                                 foreign_table: {
                                     type T = $cty;
