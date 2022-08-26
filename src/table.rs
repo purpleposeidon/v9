@@ -6,6 +6,7 @@ use crate::prelude_lib::*;
 pub struct TableHeader {
     pub name: Name,
     pub marker: Ty,
+    pub ids: Ty,
     pub columns: Vec<ColumnHeader>,
 }
 pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::Debug {
@@ -420,6 +421,7 @@ macro_rules! decl_table {
                         $crate::prelude_macro::TableHeader {
                             name: Self::NAME,
                             marker: $crate::prelude_macro::Ty::of::<super::Marker>(),
+                            ids: $crate::prelude_macro::Ty::of::<super::Ids>(),
                             columns: vec![$($crate::prelude_macro::ColumnHeader {
                                 column_type: $crate::prelude_macro::Ty::of::<self::own::$cn>(),
                                 element_type: $crate::prelude_macro::Ty::of::<self::types::$cn>(),
