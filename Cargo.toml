@@ -16,7 +16,8 @@ smallvec = { version = "0.6", features = ["serde"] }
 paste = "1.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 v9-attr = { path = "./v9-attr", version = "0.1.0" }
-bincode = { git = "https://github.com/bincode-org/bincode", default-features = false, features = ["std", "alloc", "derive"], optional = true }
+bincode = { git = "https://github.com/bincode-org/bincode", rev = "6c219e9214bda2bdce1327db6ed7f66d2fa4bf02", default-features = false, features = ["std", "alloc", "derive"], optional = true }
+
 ezty = "0.1"
 
 [dev-dependencies]
