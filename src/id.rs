@@ -815,13 +815,26 @@ impl<M: TableMarker> fmt::Debug for RunList<M> {
 }
 impl<M: TableMarker> RunList<M> {
     pub fn new() -> Self { Self::default() }
+    pub fn get_data(&self) -> &smallvec::SmallVec<[(Id<M>, Id<M>); 2]> {
+        &self.data
+    }
+    pub fn from_raw_data(len: usize, data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>) -> Result<Self, String> {
+        let ret = Self { len, data };
+        ret.validate_data()?;
+        Ok(ret)
+    }
     #[inline(always)]
     fn validate(&self) {
         if cfg!(test) {
-            let actual = self.iter().count();
-            if actual != self.len {
-                panic!("bad RunList.\nlen={}\ndata={:?}\nraw={:?}", self.len, self, self.data);
-            }
+            self.validate_data().unwrap();
+        }
+    }
+    pub fn validate_data(&self) -> Result<(), String> {
+        let actual = self.iter().count();
+        if actual == self.len {
+            Ok(())
+        } else {
+            Err(format!("bad RunList.\nlen={}\ndata={:?}\nraw={:?}", self.len, self, self.data))
         }
     }
     #[inline]
