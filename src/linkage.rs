@@ -228,7 +228,11 @@ impl<FM: TableMarker> Id<FM> {
         universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
             move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: UniverseRef| {
                 // 8. Push the local ids of the foreign ids; we have them indexed.
-                let foreign: &RunList<FM> = if let Some(f) = ev.selection.get() { f } else { return; };
+                let foreign: &RunList<FM> = if let Some(f) = ev.selection.get() {
+                    f
+                } else {
+                    return
+                };
                 let mut got = vec![];
                 for fid in foreign.iter() {
                     for lid in index.find(fid) {
@@ -340,7 +344,7 @@ impl Selection {
         let ty = Ty::of::<M>();
         self.seen.get(&ty)
             .and_then(|a: &Box<dyn AnyDebug>| {
-                let a: &dyn AnyDebug = &*a;
+                let a: &dyn AnyDebug = &**a;
                 a.downcast_ref()
             })
     }
