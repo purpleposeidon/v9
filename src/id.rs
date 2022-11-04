@@ -74,6 +74,7 @@ mod raw_impl {
 #[cfg_attr(feature = "serde", serde(bound = "M: 'static"))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 // #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
+#[repr(transparent)]
 pub struct Id<M: TableMarker>(pub M::RawId);
 impl<M: TableMarker> Default for Id<M> {
     fn default() -> Self {
