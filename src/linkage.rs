@@ -258,9 +258,9 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
     }
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
         if Ty::of::<LM>() == Ty::of::<FM>() {
-            // You're on your own.
-            return;
+            panic!("Linking a table to itself? You're on your own, pal, I'm outta here!");
         }
+        universe.add_mut(Ty::of::<MustKeepContiguous::<FM>>(), MustKeepContiguous::<FM>::default());
         universe.add_index::<LM, Self>();
         universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
             |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
@@ -330,7 +330,15 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
         );
     }
 }
-// FIXME: We could do RunList as well
+
+/// An empty tracker for `IdRange`. Indicates that a selection of a column must be restored as a
+/// single batch, in the order received, so that there is no risk of an `IdRange` spanning
+/// incorrect data. Note that this implies unnecessary conglomeration.
+#[derive(Debug, Default)]
+pub struct MustKeepContiguous<FM: TableMarker>(pub FM);
+
+// FIXME: We could do RunList as well.
+// (But I haven't needed it.)
 
 /// Holds a bunch of `RunList`s.
 #[derive(Debug, Default)]
