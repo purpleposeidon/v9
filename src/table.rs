@@ -349,37 +349,26 @@ macro_rules! decl_table {
                             *self.$cn.col.get_mut().data_mut().get_unchecked_mut(i) = row.$cn;
                         )*
                     }
-                    pub fn push_contiguous(&mut self, rows: impl IntoIterator<Item=Row>) -> Range {
-                        use $crate::util::die::bad_iter_len;
-                        let rows = rows.into_iter();
-                        let n = {
-                            let (min, max) = rows.size_hint();
-                            if Some(min) != max {
-                                bad_iter_len();
-                            }
-                            min
-                        };
-                        unsafe {
-                            match self.ids_mut().recycle_id_contiguous(n) {
-                                Ok(range) => {
-                                    let mut id_iter = range.iter();
-                                    for row in rows {
-                                        let id = id_iter.next().expect($crate::util::die::BAD_ITER_LEN);
-                                        self.set_immediate(id.to_usize(), row);
-                                    }
-                                    if id_iter.next().is_some() {
-                                        bad_iter_len();
-                                    }
-                                    range
-                                },
-                                Err(range) => {
-                                    for row in rows {
-                                        self.push_immediate(row);
-                                    }
-                                    range
-                                },
-                            }
+                    pub fn push_contiguous<IT>(&mut self, rows: IT) -> Range
+                    where
+                        IT: IntoIterator<Item=Row>,
+                        <IT as IntoIterator>::IntoIter: ExactSizeIterator,
+                    {
+                        let mut rows = rows.into_iter();
+                        let n = rows.len();
+                        let recycle = unsafe { self.ids_mut().recycle_id_contiguous(n) };
+                        for id in recycle.replace.iter() {
+                            let row = rows.next().expect($crate::util::die::BAD_ITER_LEN);
+                            unsafe { self.set_immediate(id.to_usize(), row); }
                         }
+                        if recycle.extend == 0 { return Range::empty(); }
+                        self.reserve(recycle.extend);
+                        for _ in 0..recycle.extend {
+                            let row = rows.next().expect($crate::util::die::BAD_ITER_LEN);
+                            unsafe { self.push_immediate(row); }
+                        }
+                        assert!(rows.next().is_none());
+                        recycle.result
                     }
                     pub fn borrow(&self) -> Read {
                         Read {

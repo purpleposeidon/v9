@@ -404,6 +404,7 @@ impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
 
 #[derive(Default, Debug)]
 pub struct IdList<M: TableMarker> {
+    #[doc(hidden)]
     pub free: RunList<M>,
     pushing: RunList<M>,
     deleting: SyncRef<M>,
@@ -551,51 +552,111 @@ impl<M: TableMarker> IdList<M> {
         }
     }
     /// Note: This method is `O(self.free.data.len())`
-    pub unsafe fn recycle_id_contiguous(&mut self, n: usize) -> Result<UncheckedIdRange<M>, UncheckedIdRange<M>> {
+    pub unsafe fn recycle_id_contiguous(&mut self, n: usize) -> RecycleContiguous<M> {
         if n == 0 {
-            return Err(UncheckedIdRange::empty());
+            return RecycleContiguous {
+                replace: UncheckedIdRange::empty(),
+                extend: 0,
+                result: UncheckedIdRange::empty(),
+            };
         }
         if n == 1 {
             // Special handling required because a (b, a) case would be skipped.
             let id = self.recycle_id();
-            return id.map(UncheckedIdRange::on).map_err(UncheckedIdRange::on);
+            return match id {
+                Ok(id) => RecycleContiguous {
+                    replace: UncheckedIdRange::on(id),
+                    extend: 0,
+                    result: UncheckedIdRange::on(id),
+                },
+                Err(id) => RecycleContiguous {
+                    replace: UncheckedIdRange::empty(),
+                    extend: 1,
+                    result: UncheckedIdRange::on(id),
+                },
+            };
         }
-        let mut remove = None;
-        let mut ret = None;
-        for (i, (a, b)) in self.free.data.iter_mut().enumerate().rev(/* remove from end */) {
-            // FIXME: This isn't a very good algorithm, especially if you want to push more than
-            // one range. Rather than doing weird heuristicy stuff, we should change the API to
-            // take a Vec of ranges, sort by large-to-small, and get it done in O(n).
-            // But for now, let's just hope you don't actually end up here!
-            if a >= b { continue; }
+        #[derive(Copy, Clone)]
+        struct Found<M: TableMarker> {
+            replace: UncheckedIdRange<M>,
+            waste: usize,
+            hole: ChangeHole<M>,
+            to_push: usize,
+            result: UncheckedIdRange<M>,
+        }
+        #[derive(Copy, Clone)]
+        enum ChangeHole<M: TableMarker> {
+            Remove {
+                i: usize,
+            },
+            Update {
+                i: usize,
+                to: (Id<M>, Id<M>),
+            },
+            Nothing,
+        }
+        let mut best = Found {
+            replace: UncheckedIdRange::empty(),
+            waste: usize::MAX,
+            hole: ChangeHole::Nothing,
+            to_push: n,
+            result: UncheckedIdRange::new(Id::from_usize(self.outer_capacity), Id::from_usize(self.outer_capacity + n)),
+        };
+        for (i, &(a, b)) in self.free.data.iter().enumerate().rev(/* remove from end */) {
+            if a >= b { continue; } // FIXME: We might waste a little bit w/ trimming.
             let d = b.to_usize() - a.to_usize();
-            match d.cmp(&n) {
-                Ordering::Less => continue,
-                Ordering::Equal => {
-                    remove = Some(i);
-                    ret = Some(IdRange::new(*a, *b));
-                    break;
-                },
-                Ordering::Greater => {
-                    let a2 = Id::from_usize(a.to_usize() + n);
-                    ret = Some(IdRange::new(*a, a2));
-                    *a = a2;
-                },
+            let here = if d < n {
+                if b.to_usize() != self.outer_capacity {
+                    continue;
+                }
+                // Doesn't fit in this hole, but maybe it could be enlarged.
+                // It's only slightly better than pushing to the end. If it weren't, we'd prefer it
+                // unreasonably and not use up large gaps as often as we could. And this will
+                // indeed minimize the number of vector resizes.
+                //
+                // |--==========================-------===|  [- taken, = free]
+                //    11111111111111111111113333       222222
+                //    222                              113
+                Found {
+                    replace: IdRange::new(a, b),
+                    waste: usize::MAX - 1,
+                    hole: ChangeHole::Remove { i },
+                    to_push: n - d,
+                    result: IdRange::new(a, Id::from_usize(a.to_usize() + n)),
+                }
+            } else {
+                let cut_at = Id::from_usize(a.to_usize() + n);
+                let replace = IdRange::new(a, cut_at);
+                let waste = b.to_usize() - cut_at.to_usize();
+                let hole = if waste == 0 {
+                    ChangeHole::Remove { i }
+                } else {
+                    ChangeHole::Update {
+                        i,
+                        to: (cut_at.step(1), b),
+                    }
+                };
+                Found { replace, waste, hole, to_push: 0, result: replace }
+            };
+            if best.waste >= here.waste {
+                best = here;
+                if best.waste == 0 { break; }
             }
         }
-        if let Some(i) = remove {
-            self.free.data.remove(i);
+        match best.hole {
+            ChangeHole::Remove { i } => { self.free.data.remove(i); },
+            ChangeHole::Update { i, to } => { self.free.data[i] = to; },
+            ChangeHole::Nothing => (),
         }
-        if let Some(ret) = ret {
-            return Ok(ret);
-        }
-        let a = self.outer_capacity;
-        self.outer_capacity += n;
-        let b = self.outer_capacity;
-        let a = Id::from_usize(a);
-        let b = Id::from_usize(b);
-        self.pushing.push_run(a..=b.step(-1));
-        Err(IdRange::new(a, b))
+        let ret = RecycleContiguous {
+            replace: best.replace,
+            extend: best.to_push,
+            result: best.result,
+        };
+        self.outer_capacity += ret.extend;
+        assert_eq!(ret.result.len(), n);
+        self.pushing.push_run(ret.result.start ..= ret.result.end.step(-1));
+        ret
     }
     /// The next Id that will be used for the next call to push. Be aware that calling this
     /// multiple times will return the same ID.
@@ -696,6 +757,12 @@ unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
     }
 }
 
+pub struct RecycleContiguous<M: TableMarker> {
+    pub replace: UncheckedIdRange<M>,
+    pub extend: usize,
+    pub result: UncheckedIdRange<M>,
+}
+
 /// An `Id` with a method for removing the row.
 #[derive(Copy, Clone)]
 pub struct RmId<'a, M: TableMarker> {
@@ -779,15 +846,13 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
     // FIXME: impl a size_hint
 }
 
-/// Stores `Id`s with great efficiency.
-/// Runs are stored like a `Range`.
-/// (In the case of a single run, zero allocation is needed.)
-/// Non-contiguous `Id`s have the same memory overhead as a `Vec`.
+/// Stores `Id`s with great efficiency. Runs are stored like a `RangeInclusive`. (In the case of a
+/// single run, zero allocation is needed.) Non-contiguous `Id`s have the same memory overhead as a
+/// `Vec`.
 ///
-/// If you are iterating over the rows in a table,
-/// it's easiest to use the table's `Read`, `Write`, or `Edit` `decl_context!`.
-/// Otherwise you will need to take `&$table::Id` or `&mut $table::Id` as an argument to the
-/// `Kernel`.
+/// If you are iterating over the rows in a table, it's easiest to use the `$table::Read`, `Write`,
+/// or `Edit` contexts. Otherwise you will need to take `&$table::Ids` or `&mut $table::Ids`
+/// as an argument to the `Kernel`.
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RunList<M: TableMarker> {
@@ -1087,6 +1152,7 @@ impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
                 Some(a)
             }
             Ordering::Greater => {
+                // NOTE: We return b first, since it's the lesser.
                 self.buffer = Some((a, a));
                 Some(b)
             }
