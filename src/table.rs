@@ -322,7 +322,6 @@ macro_rules! decl_table {
                         self.__v9__iter
                     }
                     pub fn reserve(&mut self, n: usize) {
-                        // FIXME: Consider the free list.
                         unsafe {
                             $(self.$cn.col.get_mut().data_mut().reserve(n);)*
                         }
@@ -336,6 +335,7 @@ macro_rules! decl_table {
                                 },
                                 Err(id) => {
                                     self.push_immediate(row);
+                                    // FIXME: Debug assert that row was actually put to ID.
                                     id
                                 },
                             }
@@ -345,9 +345,7 @@ macro_rules! decl_table {
                         $(self.$cn.col.get_mut().data_mut().push(row.$cn);)*
                     }
                     pub unsafe fn set_immediate(&mut self, i: usize, row: Row) {
-                        $(
-                            *self.$cn.col.get_mut().data_mut().get_unchecked_mut(i) = row.$cn;
-                        )*
+                        $(*self.$cn.col.get_mut().data_mut().get_unchecked_mut(i) = row.$cn;)*
                     }
                     pub fn push_contiguous<IT>(&mut self, rows: IT) -> Range
                     where
@@ -356,19 +354,18 @@ macro_rules! decl_table {
                     {
                         let mut rows = rows.into_iter();
                         let n = rows.len();
-                        let recycle = unsafe { self.ids_mut().recycle_id_contiguous(n) };
+                        let recycle = unsafe { self.ids_mut().recycle_ids_contiguous(n) };
                         for id in recycle.replace.iter() {
                             let row = rows.next().expect($crate::util::die::BAD_ITER_LEN);
                             unsafe { self.set_immediate(id.to_usize(), row); }
                         }
-                        if recycle.extend == 0 { return Range::empty(); }
                         self.reserve(recycle.extend);
                         for _ in 0..recycle.extend {
                             let row = rows.next().expect($crate::util::die::BAD_ITER_LEN);
                             unsafe { self.push_immediate(row); }
                         }
                         assert!(rows.next().is_none());
-                        recycle.result
+                        recycle.extension
                     }
                     pub fn borrow(&self) -> Read {
                         Read {

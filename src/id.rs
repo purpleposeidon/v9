@@ -539,7 +539,9 @@ impl<M: TableMarker> IdList<M> {
         }
     }
     /// Creates a new Id, or returns a previously deleted Id.
-    /// This function is unsafe because it does not push anything to the column's Vecs.
+    ///
+    /// # Safety
+    /// This function is unsafe because it does not push anything to the tables's column vectors.
     pub unsafe fn recycle_id(&mut self) -> Result<Id<M>, Id<M>> {
         if let Some(id) = self.free.pop() {
             self.pushing.push(id);
@@ -551,28 +553,72 @@ impl<M: TableMarker> IdList<M> {
             Err(id)
         }
     }
-    /// Note: This method is `O(self.free.data.len())`
-    pub unsafe fn recycle_id_contiguous(&mut self, n: usize) -> RecycleContiguous<M> {
+    /// Returns a list of IDs in an arbitrary order.
+    /// # Safety
+    /// This function is unsafe because it does not push anything to the tables's column vectors.
+    pub unsafe fn recycle_ids(&mut self, mut n: usize) -> Recycle<M> {
+        let mut replace = RunList::<M>::new();
         if n == 0 {
-            return RecycleContiguous {
-                replace: UncheckedIdRange::empty(),
+            return Recycle { replace, extend: 0, extension: UncheckedIdRange::empty() };
+        }
+        // This is quite a lazy algorithm.
+        while let Some((a, b)) = self.free.data.pop() {
+            if a > b {
+                n -= 1;
+                replace.push(a);
+                self.pushing.push(a);
+                self.free.data.push((b, b));
+            } else {
+                let d = b.to_usize() - a.to_usize();
+                if n < d {
+                    let cut = Id::from_usize(a.to_usize() + n);
+                    let run = a..=cut.step(-1);
+                    replace.push_run(run.clone());
+                    self.pushing.push_run(run);
+                    self.free.data.push((cut, b));
+                    break;
+                }
+                n -= d;
+                let run = a..=b;
+                replace.push_run(run.clone());
+                self.pushing.push_run(run);
+            }
+            if n == 0 { break; }
+        }
+        let extension = if n > 0 {
+            let extension = UncheckedIdRange::new(Id::from_usize(self.outer_capacity), Id::from_usize(self.outer_capacity + n));
+            self.pushing.push_run(Id::from_usize(self.outer_capacity) ..= Id::from_usize(self.outer_capacity + n - 1));
+            self.outer_capacity += n;
+            extension
+        } else {
+            UncheckedIdRange::empty()
+        };
+        Recycle { replace, extend: n, extension }
+    }
+    /// Note: This method is `O(self.free.data.len())`
+    /// # Safety
+    /// This function is unsafe because it does not push anything to the tables's column vectors.
+    pub unsafe fn recycle_ids_contiguous(&mut self, n: usize) -> Recycle<M> {
+        if n == 0 {
+            return Recycle {
+                replace: RunList::new(),
                 extend: 0,
-                result: UncheckedIdRange::empty(),
+                extension: UncheckedIdRange::empty(),
             };
         }
         if n == 1 {
             // Special handling required because a (b, a) case would be skipped.
             let id = self.recycle_id();
             return match id {
-                Ok(id) => RecycleContiguous {
-                    replace: UncheckedIdRange::on(id),
+                Ok(id) => Recycle {
+                    replace: RunList::on(id),
                     extend: 0,
-                    result: UncheckedIdRange::on(id),
+                    extension: UncheckedIdRange::empty(),
                 },
-                Err(id) => RecycleContiguous {
-                    replace: UncheckedIdRange::empty(),
+                Err(id) => Recycle {
+                    replace: RunList::new(),
                     extend: 1,
-                    result: UncheckedIdRange::on(id),
+                    extension: UncheckedIdRange::on(id),
                 },
             };
         }
@@ -648,20 +694,19 @@ impl<M: TableMarker> IdList<M> {
             ChangeHole::Update { i, to } => { self.free.data[i] = to; },
             ChangeHole::Nothing => (),
         }
-        let ret = RecycleContiguous {
-            replace: best.replace,
+        assert_eq!(best.result.len(), n);
+        self.pushing.push_run(best.result.start ..= best.result.end.step(-1));
+        self.outer_capacity += best.to_push;
+        Recycle {
+            replace: RunList::from(best.replace),
             extend: best.to_push,
-            result: best.result,
-        };
-        self.outer_capacity += ret.extend;
-        assert_eq!(ret.result.len(), n);
-        self.pushing.push_run(ret.result.start ..= ret.result.end.step(-1));
-        ret
+            extension: best.result,
+        }
     }
     /// The next Id that will be used for the next call to push. Be aware that calling this
     /// multiple times will return the same ID.
     pub fn next(&self) -> Id<M> {
-        // Idea: What if there wasa  'future IDs' iterator?
+        // Idea: What if there was a 'future IDs' iterator?
         self.free.last()
             .unwrap_or_else(|| {
                 Id::from_usize(self.outer_capacity)
@@ -757,10 +802,12 @@ unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
     }
 }
 
-pub struct RecycleContiguous<M: TableMarker> {
-    pub replace: UncheckedIdRange<M>,
+#[derive(Debug)]
+#[must_use]
+pub struct Recycle<M: TableMarker> {
+    pub replace: RunList<M>,
     pub extend: usize,
-    pub result: UncheckedIdRange<M>,
+    pub extension: UncheckedIdRange<M>,
 }
 
 /// An `Id` with a method for removing the row.
@@ -879,8 +926,32 @@ impl<M: TableMarker> fmt::Debug for RunList<M> {
         write!(f, "]")
     }
 }
+impl<M: TableMarker> From<RangeInclusive<Id<M>>> for RunList<M> {
+    fn from(run: RangeInclusive<Id<M>>) -> Self {
+        let mut data = smallvec::SmallVec::<[(Id<M>, Id<M>); 2]>::new();
+        data.push((*run.start(), *run.end()));
+        let len = 1 + run.end().to_usize() - run.start().to_usize();
+        RunList { len, data }
+    }
+}
+impl<M: TableMarker> From<UncheckedIdRange<M>> for RunList<M> {
+    fn from(run: UncheckedIdRange<M>) -> Self {
+        if run.start == run.end {
+            return Self::new();
+        }
+        let mut data = smallvec::SmallVec::<[(Id<M>, Id<M>); 2]>::new();
+        data.push((run.start, run.end));
+        let len = run.end.to_usize() - run.start.to_usize();
+        RunList { len, data }
+    }
+}
 impl<M: TableMarker> RunList<M> {
     pub fn new() -> Self { Self::default() }
+    pub fn on(id: Id<M>) -> Self {
+        let mut data = smallvec::SmallVec::<[(Id<M>, Id<M>); 2]>::new();
+        data.push((id, id));
+        RunList { len: 1, data }
+    }
     pub fn get_data(&self) -> &smallvec::SmallVec<[(Id<M>, Id<M>); 2]> {
         &self.data
     }
