@@ -52,9 +52,7 @@ impl Universe {
             .release(Access::Write);
     }
     pub fn is_tracked<E: 'static + Send + Sync>(&self) -> bool {
-        let ty = &Ty::of::<Tracker<E>>();
-        let objects = self.objects.read().unwrap();
-        objects.get(ty).is_some()
+        self.has_ty(Ty::of::<Tracker<E>>())
     }
     /// `owner` should be `Ty::of::<LocalTableMarker>()`.
     pub fn add_tracker<E: 'static + Send + Sync, F: FnMut(&Universe, &mut E) + 'static + Send + Sync>(&self, f: F) {

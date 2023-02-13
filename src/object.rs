@@ -59,10 +59,13 @@ impl Universe {
             .map(|l| l.into_inner())
     }
     pub fn has<T: AnyDebug>(&self) -> bool {
+        self.has_ty(Ty::of::<T>())
+    }
+    pub fn has_ty(&self, ty: Ty) -> bool {
         self.objects
             .read()
             .unwrap()
-            .get(&Ty::of::<T>())
+            .get(&ty)
             .is_some()
     }
 }
