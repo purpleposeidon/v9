@@ -267,6 +267,15 @@ pub struct IdRange<'a, I: Check> {
     pub start: I,
     pub end: I,
 }
+impl<'a, M: TableMarker> Default for IdRange<'a, Id<M>> {
+    fn default() -> Self {
+        IdRange {
+            _a: PhantomData,
+            start: Id::from_usize(0),
+            end: Id::from_usize(0),
+        }
+    }
+}
 impl<'a, I: Check> fmt::Debug for IdRange<'a, I> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
