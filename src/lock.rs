@@ -53,19 +53,19 @@ impl Locked {
         //println!("acquire {:?} on {:?}", access, self);
         self.state = match (self.state, access) {
             (LockState::Write(_), Access::Read) => {
-                panic!("kernel multi-locked object via 'WR'")
+                panic!("kernel multi-locked object via 'WR': {:?}", self.name)
             },
             (LockState::Write(_), Access::Write) => {
-                panic!("kernel multi-locked object via 'WW'")
+                panic!("kernel multi-locked object via 'WW': {:?}", self.name)
             },
             (LockState::Read(_), Access::Write) => {
-                panic!("kernel multi-locked object via 'RW'")
+                panic!("kernel multi-locked object via 'RW': {:?}", self.name)
             },
             (LockState::Read(n), Access::Read) => LockState::Read(n + 1), // checked_add? nah
             (LockState::Open, Access::Read) => LockState::Read(0),
             (LockState::Open, Access::Write) => LockState::Write(thread_id()),
             (LockState::Poison, _) => {
-                panic!("acquired poisoned lock object");
+                panic!("acquired poisoned lock object: {:?}", self.name);
             },
         }
     }
@@ -74,13 +74,13 @@ impl Locked {
         self.state = match (self.state, access) {
             (LockState::Poison, _) => self.state,
             (LockState::Open, access) => {
-                panic!("tried to release({:?}) a lock that is already open", access)
+                panic!("tried to release({:?}) a lock that is already open: {:?}", access, self.name)
             }
             (LockState::Write(_), Access::Write) => LockState::Open,
             (LockState::Read(0), Access::Read) => LockState::Open,
             (LockState::Read(n), Access::Read) => LockState::Read(n - 1),
             (state, access) => {
-                panic!("Mismatched release({:?}) to {:?}", access, state)
+                panic!("Mismatched release({:?}) to {:?}: {:?}", access, state, self.name)
             },
         }
     }

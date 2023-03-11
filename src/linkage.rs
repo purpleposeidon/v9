@@ -258,7 +258,8 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
     }
     pub fn __v9_link_foreign_key<LM: TableMarker>(universe: &mut Universe) {
         if Ty::of::<LM>() == Ty::of::<FM>() {
-            panic!("Linking a table to itself? You're on your own, pal, I'm outta here!");
+            panic!("Linking a table to itself? You're on your own, pal, I'm outta here! {:?}", Ty::of::<LM>().name());
+        }
         let mkc = Ty::of::<MustKeepContiguous::<FM>>();
         if !universe.has_ty(mkc) {
             universe.add_mut(mkc, MustKeepContiguous::<FM>::default());

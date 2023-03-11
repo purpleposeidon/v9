@@ -30,7 +30,7 @@ impl Universe {
     fn insert(map: &mut HashMap<Ty, Box<Locked>>, ty: Ty, obj: Box<Locked>) {
         match map.entry(ty) {
             MapEntry::Occupied(_) => {
-                panic!("object inserted twice")
+                panic!("object inserted twice: {:?}", ty)
             },
             MapEntry::Vacant(e) => e.insert(obj),
         };

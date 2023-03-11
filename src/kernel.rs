@@ -197,12 +197,12 @@ impl LockBuffer {
             match a {
                 Access::Read => {
                     if write.contains(&t) {
-                        panic!("kernel has conflicting acquisitions on lock");
+                        panic!("kernel has conflicting acquisitions on lock: {:?}", t);
                     }
                 }
                 Access::Write => {
                     if any.contains(&t) {
-                        panic!("kernel has conflicting acquisitions on lock");
+                        panic!("kernel has conflicting acquisitions on lock: {:?}", t);
                     }
                     write.insert(t);
                 }

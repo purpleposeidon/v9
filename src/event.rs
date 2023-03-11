@@ -36,14 +36,14 @@ impl Universe {
                 let obj: &mut dyn AnyDebug = &mut *locked.contents();
                 obj.downcast_mut::<Tracker<E>>().unwrap()
             } else {
-                panic!("an event should not be created if there are no handlers");
+                panic!("an event should not be created if there are no handlers: {:?}", type_name::<E>());
             }
         };
         for handler in &mut event.handlers {
             handler(self, e);
         }
         if (cfg!(debug) || cfg!(test)) && event.handlers.is_empty() {
-            panic!("if all handlers are removed from a tracker, it should be removed");
+            panic!("if all handlers are removed from a tracker, it should be removed: {:?}", type_name::<E>());
         }
         let mut objects = self.objects.write().unwrap();
         objects
