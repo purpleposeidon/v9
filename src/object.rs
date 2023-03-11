@@ -110,36 +110,47 @@ impl Universe {
         })
     }
     pub fn with_obj<R>(&self, ty: Ty, f: impl FnOnce(&dyn AnyDebug) -> R) -> R {
-        self.with_access(ty, Access::Read, move |obj| unsafe {
+        let mut f = Some(f);
+        let mut ret = Option::None;
+        self.with_access(ty, Access::Read, &mut |obj: *mut dyn AnyDebug| unsafe {
             let obj = &*obj;
-            f(obj)
-        })
+            ret = Some((f.take().unwrap_unchecked())(obj));
+        });
+        unsafe { ret.unwrap_unchecked() }
     }
     pub fn with_obj_mut<R>(&self, ty: Ty, f: impl FnOnce(&mut dyn AnyDebug) -> R) -> R {
-        self.with_access(ty, Access::Write, move |obj| unsafe {
+        let mut f = Some(f);
+        let mut ret = Option::None;
+        self.with_access(ty, Access::Write, &mut |obj: *mut dyn AnyDebug| unsafe {
             let obj = &mut *obj;
-            f(obj)
-        })
+            ret = Some((f.take().unwrap_unchecked())(obj));
+        });
+        unsafe { ret.unwrap_unchecked() }
     }
-    pub fn with_access<R>(
+    fn with_access(
         &self,
         ty: Ty,
         access: Access,
-        f: impl FnOnce(*mut dyn AnyDebug) -> R,
-    ) -> R {
+        f: &mut dyn FnMut(*mut dyn AnyDebug),
+    ) {
         loop {
             let mut objects = self.objects.write().unwrap();
-            let obj = objects.get_mut(&ty).expect("type not found");
+            let obj = objects
+                .get_mut(&ty)
+                .unwrap_or_else(|| panic!("type not found: {:?}", ty));
             if obj.can(access) {
                 obj.acquire(access);
                 let obj = unsafe { obj.contents() };
                 mem::drop(objects);
-                let ret = f(obj);
+                f(obj);
                 let mut objects = self.objects.write().unwrap();
-                let obj = objects.get_mut(&ty).expect("type lost");
+                let obj = objects
+                    .get_mut(&ty)
+                    .unwrap_or_else(|| panic!("type lost while in use: {:?}", ty));
                 obj.release(access);
-                return ret;
+                return;
             }
+            // FIXME: Hey, isn't this a busy-loop? Sounds like a bad time...
         }
     }
     pub fn lock_state_dump(&self) {
