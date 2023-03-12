@@ -269,6 +269,7 @@ impl Kernel {
     pub fn with_args<'a>(&'a mut self) -> PushArgs<'a> {
         PushArgs(Some(self))
     }
+    pub fn resources(&self) -> &[(Ty, Access)] { &self.buffer.resources }
 }
 pub struct PushArgs<'a>(Option<&'a mut Kernel>);
 impl<'a> PushArgs<'a> {
