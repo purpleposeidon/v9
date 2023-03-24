@@ -1144,6 +1144,12 @@ impl<M: TableMarker> RunList<M> {
         }
         self.validate();
     }
+    pub fn contains(&self, id: Id<M>) -> bool {
+        for run in self.iter_runs() {
+            if run.contains(&id) { return true; }
+        }
+        false
+    }
     pub fn iter_runs<'a>(&'a self) -> impl Iterator<Item=RangeInclusive<Id<M>>> + 'a {
         struct Iter<'a, M: TableMarker> {
             buff: Option<RangeInclusive<Id<M>>>,
