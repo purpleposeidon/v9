@@ -411,7 +411,7 @@ impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct IdList<M: TableMarker> {
     #[doc(hidden)]
     pub free: RunList<M>,
@@ -576,15 +576,59 @@ impl<M: TableMarker> IdList<M> {
                 n -= 1;
                 replace.push(a);
                 self.pushing.push(a);
-                self.free.data.push((b, b));
             } else {
-                let d = b.to_usize() - a.to_usize();
+                // a = 0 b = 100 n = 10
+                //      d = 101
+                //      cut = 10
+                //      run = 0..=9
+                //      rem = 10..=100
+                // a = 0 b = 100 n = 1
+                //      d = 101
+                //      cut = 1
+                //      run = 0..=0
+                //      rem = 1..=100
+                // a = 0 b = 10 n = 100
+                //      d = 11
+                //      n-d = 89
+                //      run = 0..=10
+                // a = 1 b = 10 n = 10
+                //      d = 10
+                //      n-d = 0
+                //      run = 1..=10
+                // a = 1 b = 10 n = 9
+                //      d = 10
+                //      cut = 10
+                //      run = 1..=9
+                //      rem = 10..=10
+                // a = 1 b = 10 n = 11
+                //      d = 10
+                //      n-d = 1
+                //      run = 1.=10
+                // a = 0 b = 10 n = 10
+                //      d = 
+                //      n-d = 
+                //      run = 
+                // a = 0 b = 10 n = 11
+                //      d = 11
+                //      n-d = 0
+                //      run = 0..=10
+                // a = 0 b = 1 n = 100
+                //      d = 2
+                //      n-d = 98
+                //      run = 0..=1
+                // a = 0 b = 1 n = 1
+                //      d = 2
+                //      cut = 1
+                //      run = 0..=0
+                //      rem = 1..=1
+                let d = (b.to_usize() - a.to_usize()) + 1;
                 if n < d {
                     let cut = Id::from_usize(a.to_usize() + n);
                     let run = a..=cut.step(-1);
                     replace.push_run(run.clone());
                     self.pushing.push_run(run);
                     self.free.data.push((cut, b));
+                    n = 0;
                     break;
                 }
                 n -= d;
@@ -602,6 +646,7 @@ impl<M: TableMarker> IdList<M> {
         } else {
             UncheckedIdRange::empty()
         };
+        replace.sort();
         Recycle { replace, extend: n, extension }
     }
     /// Note: This method is `O(self.free.data.len())`
@@ -730,6 +775,9 @@ impl<M: TableMarker> IdList<M> {
         }
     }
     pub fn erase_events(&mut self) {
+        // NB: What about outer_capacity? This function is probably *wrong*.
+        // It was being used for a migrator, that read in Vec<Old>, mapped it to Vec<New>.
+        // So in that use case... it would certainly be fine so long as there were other columns.
         self.pushing.clear();
         self.deleting.get_mut().clear();
     }
@@ -817,6 +865,11 @@ pub struct Recycle<M: TableMarker> {
     pub replace: RunList<M>,
     pub extend: usize,
     pub extension: UncheckedIdRange<M>,
+}
+impl<M: TableMarker> Recycle<M> {
+    pub fn count(&self) -> usize {
+        self.extend + self.replace.len()
+    }
 }
 
 /// An `Id` with a method for removing the row.
@@ -932,7 +985,7 @@ impl<M: TableMarker> fmt::Debug for RunList<M> {
                 Ordering::Greater => write!(f, "{:?}, {:?}", b, a),
             }?;
         }
-        write!(f, "]")
+        write!(f, "](len={})", self.len)
     }
 }
 impl<M: TableMarker> From<RangeInclusive<Id<M>>> for RunList<M> {
@@ -1071,11 +1124,12 @@ impl<M: TableMarker> RunList<M> {
         self.validate();
     }
     pub fn push_run(&mut self, r: RangeInclusive<Id<M>>) {
+        // FIXME: This can be better.
         self.validate();
         // FIXME: if r.is_empty() { return; }
         let l = *r.start();
         let h = *r.end();
-        assert!(h >= l);
+        assert!(h >= l, "bad run: {:?}", r);
         self.len += 1 + h.to_usize() - l.to_usize();
         if let Some((a, b)) = self.data.last_mut() {
             // We're just gonna assume that r is not inclusive with any existing run.
@@ -1507,5 +1561,90 @@ mod test_run_list {
         l.pop();
         l.push(Id(0));
         l.pop();
+    }
+
+    #[test]
+    fn recycling1() {
+        let universe = Universe::new();
+        let mut ids = IdList::<M>::default();
+        unsafe {
+            let _made = ids.recycle_ids_contiguous(108);
+            dbg!(&ids);
+            ids.flush(&universe, 0);
+            for id in ids.removing() {
+                id.remove();
+            }
+            dbg!(&ids);
+            ids.flush(&universe, 0);
+            dbg!(&ids);
+            let recycle = ids.recycle_ids(45);
+            dbg!(&recycle);
+            assert_eq!(recycle.replace.len(), 45);
+        }
+    }
+
+    #[test]
+    fn recycling2() {
+        let check = |a, b, n| {
+            let mut ids = IdList {
+                free: {
+                    let mut free = RunList {
+                        len: 0,
+                        data: [
+                            (a, b),
+                        ].iter().map(|&(a, b)| (Id::<M>::new(a), Id::<M>::new(b))).collect(),
+                    };
+                    free.len = free.iter().count();
+                    free
+                },
+                pushing: Default::default(),
+                deleting: Default::default(),
+                outer_capacity: 100,
+            };
+            let recycle = unsafe { ids.recycle_ids(n) };
+            assert_eq!(n, recycle.count(), "a = {} b = {} n = {}", a, b, n);
+        };
+        for a in 0..=10 {
+            for b in 0..=10 {
+                for n in 0..=10 {
+                    check(a, b, n)
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recycling3() {
+        let ids = IdList {
+            free: {
+                let mut free = RunList {
+                    len: 0,
+                    data: [
+                        (1, 3),
+                        (13, 15),
+                        (23, 21),
+                        (27, 25),
+                        (43, 64),
+                        (70, 76),
+                    ].iter().map(|&(a, b)| (Id::<M>::new(a), Id::<M>::new(b))).collect(),
+                };
+                free.len = free.iter().count();
+                free
+            },
+            pushing: Default::default(),
+            deleting: Default::default(),
+            outer_capacity: 100,
+        };
+        dbg!(&ids);
+        for n in 0..ids.len() * 2 {
+            let mut ids = ids.clone();
+            let recycle = unsafe { ids.recycle_ids(n) };
+            let actual = recycle.count();
+            if n != actual {
+                dbg!(&recycle);
+
+                assert_eq!(n, actual);
+            }
+        }
     }
 }
