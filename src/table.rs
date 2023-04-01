@@ -327,8 +327,8 @@ macro_rules! decl_table {
                         }
                     }
                     pub fn push(&mut self, row: Row) -> Id {
-                        unsafe {
-                            match self.__v9__iter.recycle_id() {
+                        let id = unsafe {
+                            match self.__v9__iter.recycle_id_no_event() {
                                 Ok(id) => {
                                     self.set_immediate(id.to_usize(), row);
                                     id
@@ -339,7 +339,9 @@ macro_rules! decl_table {
                                     id
                                 },
                             }
-                        }
+                        };
+                        self.__v9__iter.event_push(id);
+                        id
                     }
                     pub unsafe fn push_immediate(&mut self, row: Row) {
                         $(self.$cn.col.get_mut().data_mut().push(row.$cn);)*
@@ -354,7 +356,7 @@ macro_rules! decl_table {
                     {
                         let mut rows = rows.into_iter();
                         let n = rows.len();
-                        let recycle = unsafe { self.ids_mut().recycle_ids_contiguous(n) };
+                        let recycle = unsafe { self.ids_mut().recycle_ids_contiguous_no_event(n) };
                         for id in recycle.replace.iter() {
                             let row = rows.next().expect($crate::util::die::BAD_ITER_LEN);
                             unsafe { self.set_immediate(id.to_usize(), row); }
@@ -365,6 +367,7 @@ macro_rules! decl_table {
                             unsafe { self.push_immediate(row); }
                         }
                         assert!(rows.next().is_none());
+                        self.ids_mut().event_push_run(recycle.extension);
                         recycle.extension
                     }
                     pub fn borrow(&self) -> Read {
