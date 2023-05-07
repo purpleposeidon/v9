@@ -354,6 +354,7 @@ macro_rules! decl_table {
                         IT: IntoIterator<Item=Row>,
                         <IT as IntoIterator>::IntoIter: ExactSizeIterator,
                     {
+                        self.ids_mut().validate();
                         let mut rows = rows.into_iter();
                         let n = rows.len();
                         let recycle = unsafe { self.ids_mut().recycle_ids_contiguous_no_event(n) };
@@ -368,6 +369,7 @@ macro_rules! decl_table {
                         }
                         assert!(rows.next().is_none());
                         self.ids_mut().event_push_run(recycle.extension);
+                        self.ids_mut().validate();
                         recycle.extension
                     }
                     pub fn borrow(&self) -> Read {

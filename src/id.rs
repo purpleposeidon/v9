@@ -171,7 +171,7 @@ pub unsafe trait Check: Copy + Ord + fmt::Debug {
         // unsafe because you mustn't lie about `max`.
         let i = self.to_usize();
         if i >= max {
-            panic!("OOB");
+            oob(i, max);
         }
         CheckedId {
             table,
@@ -413,20 +413,22 @@ impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
 
 #[derive(Default, Debug, Clone)]
 pub struct IdList<M: TableMarker> {
-    #[doc(hidden)]
-    pub free: RunList<M>,
+    free: RunList<M>,
     pushing: RunList<M>,
     deleting: SyncRef<M>,
     outer_capacity: usize,
     // We only use SyncRef because elsehwere needs a &mut V, but this is unusable.
 }
 impl<M: TableMarker> IdList<M> {
+    pub fn validate(&self) {
+        self.free.validate();
+        self.pushing.validate();
+        unsafe { self.deleting.as_cell_unsafe().borrow().validate(); }
+    }
     #[inline]
     pub fn len(&self) -> usize {
         let free_len = self.free.len();
-        if cfg!(test) {
-            assert_eq!(free_len, self.free.iter().count());
-        }
+        assert!(self.outer_capacity >= free_len);
         self.outer_capacity - free_len
     }
     pub fn is_empty(&self) -> bool {
@@ -494,12 +496,34 @@ impl<M: TableMarker> IdList<M> {
     }
     #[inline]
     pub fn delete(&mut self, id: Id<M>) {
+        if cfg!(test) || true {
+            assert!(self.exists(id));
+        }
         self.deleting.get_mut().push(id);
     }
     pub fn delete_extend(&mut self, i: impl Iterator<Item=Id<M>>) {
+        let i = {
+            assert!(cfg!(test) || true);
+            let i = i.collect::<Vec<Id<M>>>();
+            for &id in &i {
+                assert!(self.exists(id));
+            }
+            i
+        }.into_iter();
         self.deleting.get_mut().extend(i);
     }
     pub fn delete_extend_ranges(&mut self, i: impl Iterator<Item=RangeInclusive<Id<M>>>) {
+        let i = {
+            assert!(cfg!(test) || true);
+            let i = i.collect::<Vec<RangeInclusive<Id<M>>>>();
+            for run in &i {
+                for r in run.start().to_usize()..=run.end().to_usize() {
+                    let r = Id::from_usize(r);
+                    assert!(self.exists(r));
+                }
+            }
+            i
+        }.into_iter();
         let deleting = self.deleting.get_mut();
         deleting.data.reserve(i.size_hint().0);
         for run in i {
@@ -574,50 +598,6 @@ impl<M: TableMarker> IdList<M> {
                 n -= 1;
                 replace.push(a);
             } else {
-                // a = 0 b = 100 n = 10
-                //      d = 101
-                //      cut = 10
-                //      run = 0..=9
-                //      rem = 10..=100
-                // a = 0 b = 100 n = 1
-                //      d = 101
-                //      cut = 1
-                //      run = 0..=0
-                //      rem = 1..=100
-                // a = 0 b = 10 n = 100
-                //      d = 11
-                //      n-d = 89
-                //      run = 0..=10
-                // a = 1 b = 10 n = 10
-                //      d = 10
-                //      n-d = 0
-                //      run = 1..=10
-                // a = 1 b = 10 n = 9
-                //      d = 10
-                //      cut = 10
-                //      run = 1..=9
-                //      rem = 10..=10
-                // a = 1 b = 10 n = 11
-                //      d = 10
-                //      n-d = 1
-                //      run = 1.=10
-                // a = 0 b = 10 n = 10
-                //      d = 
-                //      n-d = 
-                //      run = 
-                // a = 0 b = 10 n = 11
-                //      d = 11
-                //      n-d = 0
-                //      run = 0..=10
-                // a = 0 b = 1 n = 100
-                //      d = 2
-                //      n-d = 98
-                //      run = 0..=1
-                // a = 0 b = 1 n = 1
-                //      d = 2
-                //      cut = 1
-                //      run = 0..=0
-                //      rem = 1..=1
                 let d = (b.to_usize() - a.to_usize()) + 1;
                 if n < d {
                     let cut = Id::from_usize(a.to_usize() + n);
@@ -743,8 +723,8 @@ impl<M: TableMarker> IdList<M> {
             ChangeHole::Nothing => (),
         }
         assert_eq!(best.result.len(), n);
-        self.pushing.push_run(best.result.start ..= best.result.end.step(-1));
         self.outer_capacity += best.to_push;
+        // FIXME: Isn't it weird that we change self.outer_capacity but not self.pushing?
         Recycle {
             replace: RunList::from(best.replace),
             extend: best.to_push,
@@ -1030,20 +1010,37 @@ impl<M: TableMarker> RunList<M> {
     }
     #[inline(always)]
     fn validate(&self) {
-        if cfg!(test) {
+        if cfg!(test) || true {
             self.validate_data().unwrap();
         }
     }
     pub fn validate_data(&self) -> Result<(), String> {
         let actual = self.iter().count();
         if actual == self.len {
+            use std::collections::HashSet;
+            let dedupe = self.iter().collect::<HashSet<_>>();
+            if dedupe.len() != self.len {
+                return Err(format!("bad RunList, has duplicated entries.\ndata={:?}\ndedupe={:?}", self.data, dedupe));
+            }
             Ok(())
         } else {
             Err(format!("bad RunList.\nlen={}\ndata={:?}\nraw={:?}", self.len, self, self.data))
         }
     }
+    pub fn check_len(&self) -> Result<(), String> {
+        let actual = self.iter().count();
+        if actual == self.len {
+            return Ok(());
+        }
+        Err(format!("self.len = {} != {} = actual; in {:?}", self.len, actual, self))
+    }
     #[inline]
-    pub fn len(&self) -> usize { self.len }
+    pub fn len(&self) -> usize {
+        if cfg!(test) || true {
+            self.check_len().unwrap();
+        }
+        self.len
+    }
     pub fn is_empty(&self) -> bool { self.iter().next().is_none() }
     pub fn push(&mut self, i: Id<M>) {
         self.validate();
@@ -1093,7 +1090,7 @@ impl<M: TableMarker> RunList<M> {
                             [b, a, i]
                         }
                     };
-                    if cfg!(test) {
+                    if cfg!(test) || true {
                         let mut g = [a, b, i];
                         g.sort();
                         assert_eq!(s, g);
@@ -1653,4 +1650,59 @@ mod test_run_list {
             }
         }
     }
+
+    #[test]
+    fn overflow() {
+        let id = |n| Id::<M>::from_usize(n);
+        let ids = IdList {
+            free: {
+                RunList {
+                    len: 126,
+                    data: [
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(1)..=id(4),
+                        id(6)..=id(7),
+                        id(6)..=id(7),
+                        id(6)..=id(7),
+                        id(6)..=id(7),
+                        id(6)..=id(7),
+                        id(6)..=id(7),
+                        id(6)..=id(7),
+                        id(6)..=id(7),
+                        id(13)..=id(16),
+                        id(13)..=id(16),
+                        id(13)..=id(16),
+                        id(13)..=id(16),
+                        id(13)..=id(16),
+                        id(13)..=id(16),
+                        id(20)..=id(22),
+                        id(20)..=id(22),
+                        id(20)..=id(22),
+                        id(20)..=id(22),
+                        id(25)..=id(27),
+                        id(25)..=id(27),
+                        id(30)..=id(34),
+                        id(98)..=id(120),
+                    ].iter().map(|run| (*run.start(), *run.end())).collect(),
+                }
+            },
+            pushing: Default::default(),
+            deleting: Default::default(),
+            outer_capacity: 121,
+        };
+        assert_eq!(0, ids.len());
+    }
+}
+
+#[cold]
+fn oob(i: usize, max: usize) -> ! {
+    panic!("OOB: i:{} >= max:{}", i, max)
 }
