@@ -2,14 +2,12 @@
 
 use crate::event::*;
 use crate::prelude_lib::*;
-use std::cell::RefCell;
 use std::fmt;
-use std::ops::{Range, RangeInclusive, Add, Sub};
-use std::iter::Peekable;
+use std::ops::{Range, RangeInclusive};
 use std::hash;
 use std::cmp::Ordering;
 
-type Run<M> = (Id<M>, Id<M>);
+use crate::event::lifestage;
 
 mod serializers {
     macro_rules! for_set {
@@ -27,44 +25,31 @@ mod serializers {
 }
 
 
-pub trait Raw
-where
-    Self: 'static + Send + Sync,
-    Self: Ord + Copy + fmt::Debug + hash::Hash,
-    Self: self::serializers::Serializable,
-    Self: Add<Output=Self> + Sub<Output=Self>,
-    Self: self::raw_impl::Sealed,
-{
-    fn to_usize(self) -> usize;
-    fn from_usize(x: usize) -> Self;
-    fn offset(self, d: i8) -> Self;
-    const ZERO: Self;
-    const LAST: Self;
+pub trait Raw: self::serializers::Serializable + runlist::Id + self::raw_impl::Sealed {
+    const ZERO: Self = <Self as runlist::Id>::ZERO;
+    const ONE: Self = <Self as runlist::Id>::ONE;
+    const TWO: Self = <Self as runlist::Id>::TWO;
+    const LAST: Self = <Self as runlist::Id>::MAX;
+    fn to_usize(self) -> usize {
+        <Self as runlist::Id>::to_usize(self)
+    }
+    /// Panics if out of range.
+    fn from_usize(i: usize) -> Self {
+        <Self as runlist::Id>::from_usize(i)
+    }
+    fn offset(self, d: i8) -> Self {
+        <Self as runlist::Id>::offset(self, d)
+    }
 }
+impl<X: self::serializers::Serializable + runlist::Id + self::raw_impl::Sealed> Raw for X {}
 
 mod raw_impl {
     /// Forbid non-primitives from being put into a SyncRef.
     pub trait Sealed {}
-    use super::Raw;
-    macro_rules! imp {
-        ($($ty:ident),*) => {$(
-            impl Sealed for $ty {}
-            impl Raw for $ty {
-                #[inline]
-                fn to_usize(self) -> usize { self as usize }
-                #[inline]
-                fn from_usize(x: usize) -> Self { x as _ }
-                #[inline]
-                #[allow(clippy::cast_lossless)]
-                fn offset(self, d: i8) -> Self {
-                    i64::from(self as i64 + i64::from(d)) as $ty
-                }
-                const ZERO: Self = 0;
-                const LAST: Self = std::$ty::MAX;
-            }
-        )*};
-    }
-    imp! { u8, u16, u32, u64 }
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for u64 {}
     // u128? Absurd.
 }
 
@@ -163,8 +148,8 @@ impl<'a, M: TableMarker> fmt::Debug for CheckedId<'a, M> {
 }
 pub unsafe trait Check: Copy + Ord + fmt::Debug {
     type M: TableMarker;
-    unsafe fn check_from_len<'a>(
-        self,
+    unsafe fn check_from_capacity<'a>(
+        &self,
         table: PhantomData<&'a Self::M>,
         max: usize,
     ) -> CheckedId<'a, Self::M> {
@@ -200,11 +185,9 @@ unsafe impl<'a, M: TableMarker> Check for CheckedId<'a, M> {
         }
     }
     #[inline]
-    unsafe fn step(self, d: i8) -> Self {
-        CheckedId {
-            id: self.id.step(d),
-            ..self
-        }
+    unsafe fn step(mut self, d: i8) -> Self {
+        self.id = self.id.step(d);
+        self
     }
     #[cfg(release)]
     #[inline]
@@ -213,7 +196,7 @@ unsafe impl<'a, M: TableMarker> Check for CheckedId<'a, M> {
     }
     #[cfg(release)]
     #[inline]
-    unsafe fn check_from_len(
+    unsafe fn check_from_capacity(
         &self,
         _table: PhantomData<&'a Self::M>,
         _max: usize,
@@ -223,7 +206,7 @@ unsafe impl<'a, M: TableMarker> Check for CheckedId<'a, M> {
     #[inline]
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.id.0 }
 }
-unsafe impl<'a, M: TableMarker> Check for Id<M> {
+unsafe impl<M: TableMarker> Check for Id<M> {
     type M = M;
     #[inline]
     fn uncheck(&self) -> Id<M> {
@@ -262,11 +245,21 @@ impl<M: TableMarker> From<usize> for Id<M> {
 #[cfg_attr(feature = "serde", serde(bound = "I: serde::Serialize + serde::de::DeserializeOwned"))]
 #[cfg_attr(feature = "bincode", derive(bincode::Encode, bincode::Decode))]
 pub struct IdRange<'a, I: Check> {
+    // We don't use TableMarker so that we can be flexible.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) _a: PhantomData<&'a ()>,
     pub start: I,
     pub end: I,
 }
+/*impl<M: TableMarker + Check<M = M>> From<IdRange<'_, M>> for runlist::Run<M::RawId> {
+    fn from(idr: IdRange<M>) -> runlist::Run<M::RawId> {
+        let start: M::RawId = idr.start.to_raw();
+        let end: M::RawId = idr.end.to_raw();
+        let range: Range<M::RawId> = start..end;
+        let ret: runlist::Run<M::RawId> = range.try_into().unwrap();
+        ret
+    }
+}*/
 impl<'a, M: TableMarker> Default for IdRange<'a, Id<M>> {
     fn default() -> Self {
         IdRange {
@@ -285,6 +278,17 @@ impl<'a, I: Check> fmt::Debug for IdRange<'a, I> {
             self.start.to_usize(),
             self.end.to_usize()
         )
+    }
+}
+impl<'a, I: Check> Into<Range<I>> for IdRange<'a, I> {
+    fn into(self) -> Range<I> {
+        self.start .. self.end
+    }
+}
+impl<'a, I: Check> Into<RangeInclusive<I>> for IdRange<'a, I> {
+    fn into(self) -> RangeInclusive<I> {
+        assert!(!self.is_empty());
+        self.start ..= unsafe { self.end.step(-1) }
     }
 }
 impl<'a, I: Check> IdRange<'a, I> {
@@ -370,11 +374,12 @@ impl<M: TableMarker> IdRange<'static, Id<M>> {
         }
     }
 }
+#[derive(Clone)]
 pub struct IdRangeIter<'a, I: Check> {
     range: IdRange<'a, I>,
     _a: PhantomData<&'a ()>,
 }
-impl<'a, I: Check> IntoIterator for IdRange<'a, I> {
+impl<'a, I: Copy + Check> IntoIterator for IdRange<'a, I> {
     type Item = I;
     type IntoIter = IdRangeIter<'a, I>;
     fn into_iter(self) -> Self::IntoIter {
@@ -410,128 +415,123 @@ impl<M: TableMarker> From<Range<Id<M>>> for UncheckedIdRange<M> {
         }
     }
 }
+impl<M: TableMarker> From<RangeInclusive<Id<M>>> for UncheckedIdRange<M> {
+    fn from(r: RangeInclusive<Id<M>>) -> Self {
+        IdRange {
+            _a: PhantomData,
+            start: *r.start(),
+            end: r.end().step(1),
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone)]
+#[repr(C)]
 pub struct IdList<M: TableMarker> {
-    free: RunList<M>,
-    pushing: RunList<M>,
-    deleting: SyncRef<M>,
-    outer_capacity: usize,
-    // We only use SyncRef because elsehwere needs a &mut V, but this is unusable.
+    inner: runlist::IdList<M::RawId>,
+    //rm_id_live: bool,
+    event_commitment: EventCommitment,
+    load_events: bool,
 }
 impl<M: TableMarker> IdList<M> {
-    pub fn validate(&self) {
-        self.free.validate();
-        self.pushing.validate();
-        unsafe { self.deleting.as_cell_unsafe().borrow().validate(); }
-    }
-    #[inline]
-    pub fn len(&self) -> usize {
-        let free_len = self.free.len();
-        assert!(self.outer_capacity >= free_len);
-        self.outer_capacity - free_len
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-    #[inline]
-    pub fn outer_capacity(&self) -> usize { self.outer_capacity }
-    #[inline]
-    pub unsafe fn set_outer_capacity(&mut self, outer_capacity: usize) { self.outer_capacity = outer_capacity }
-    pub fn exists(&self, id: Id<M>) -> bool {
-        id.to_usize() < self.outer_capacity && !self.free.iter_runs().any(|run| {
-            run.contains(&id)
-        })
-    }
-    pub fn flush(&mut self, universe: &Universe, tracked_events: u8) {
-        if !self.pushing.is_empty() {
-            if tracked_events & TRACK_PUSH != 0 {
-                let ids = mem::take(&mut self.pushing);
-                let mut pushed = Pushed { ids };
-                universe.submit_event(&mut pushed);
-                mem::swap(&mut pushed.ids, &mut self.pushing);
-                if !pushed.ids.is_empty() {
-                    panic!("changed during flush");
-                }
+    pub fn validate(&self) { self.inner.assert().unwrap(); }
+    #[inline] pub fn len(&self) -> usize { self.inner.len() }
+    #[inline] pub fn is_empty(&self) -> bool { self.inner.is_empty() }
+    #[inline] pub fn outer_capacity(&self) -> usize { M::RawId::to_usize(self.inner.outer_capacity()) }
+    #[inline] pub fn exists(&self, id: Id<M>) -> bool { self.inner.exists(id.0) }
+    pub fn flush(&mut self, universe: &Universe) {
+        if let EventCommitment::None = self.event_commitment { return; }
+        self.event_commitment = EventCommitment::None;
+        let (track_push, track_delete) = (
+            {
+                false
+                    || universe.is_tracked::<Push<M, lifestage::MEMORY>>()
+                    || universe.is_tracked::<Push<M, lifestage::LOGICAL>>()
+                    || universe.is_tracked::<Push<M, lifestage::LOAD>>()
+            }, {
+                false
+                    || universe.is_tracked::<Delete<M, lifestage::MEMORY>>()
+                    || universe.is_tracked::<Delete<M, lifestage::LOGICAL>>()
+                    || universe.is_tracked::<Delete<M, lifestage::LOAD>>()
             }
-            self.pushing.clear();
-        }
-        if !self.deleting.get_mut().is_empty() {
-            if tracked_events & TRACK_DELETE != 0 {
-                let ids = mem::take(self.deleting.get_mut());
-                let mut deleted = Deleted { ids };
-                universe.submit_event(&mut deleted);
-                mem::swap(&mut deleted.ids, self.deleting.get_mut());
-                if !deleted.ids.is_empty() {
-                    panic!("changed during flush");
+        );
+        use runlist::FlushResult;
+        match self.inner.flush(track_push, track_delete) {
+            FlushResult::Nothing => (),
+            FlushResult::Pushed(ids) => if !ids.is_empty() {
+                let ids = RunList::<M> { inner: ids };
+                let mut event = Push { lifestage: unsafe { Unsafe::new(lifestage::MEMORY) }, ids };
+                universe.submit_event(&mut event);
+                let ids = event.ids;
+                if self.load_events {
+                    self.load_events = false;
+                    let mut event = Push { lifestage: unsafe { Unsafe::new(lifestage::LOAD) }, ids };
+                    universe.submit_event(&mut event);
+                } else {
+                    let mut event = Push { lifestage: unsafe { Unsafe::new(lifestage::LOGICAL) }, ids };
+                    universe.submit_event(&mut event);
                 }
-            }
-            self.write_deletions();
+            },
+            FlushResult::Deleted(ids) => if !ids.is_empty() {
+                let ids = RunList::<M> { inner: ids };
+                let ids = if self.load_events {
+                    self.load_events = false;
+                    let mut event = Delete { lifestage: unsafe { Unsafe::new(lifestage::LOAD) }, ids };
+                    universe.submit_event(&mut event);
+                    event.ids
+                } else {
+                    let mut event = Delete { lifestage: unsafe { Unsafe::new(lifestage::LOGICAL) }, ids };
+                    universe.submit_event(&mut event);
+                    event.ids
+                };
+                let mut event = Delete { lifestage: unsafe { Unsafe::new(lifestage::MEMORY) }, ids };
+                universe.submit_event(&mut event);
+            },
         }
-    }
-    pub fn write_deletions(&mut self) {
-        // This uses timsort, which WP says has special handling for runs.
-        // Merging together two sorted runs is the typical case.
-        // Theoretically, an unstable sort will be slower in this case,
-        // but I haven't tested this.
-        let deleting = self.deleting.get_mut();
-        deleting.len = 0;
-        self.free.data.extend(deleting.data.drain());
-        self.free.sort();
-        // We could implement this in a better way by merging back-to-front.
-        // We'd extend `free` with !0's, merge backwards.
     }
     #[inline]
     pub fn iter(&self) -> CheckedIter<M> {
-        unsafe {
-            CheckedIter::new(self.outer_capacity, &self.free)
-        }
-    }
-    #[inline]
-    pub fn range(&self, range: UncheckedIdRange<M>) -> CheckedIter<M> {
-        unsafe {
-            assert!(range.start <= range.end);
-            CheckedIter::over(range, &self.free)
+        CheckedIter {
+            inner: self.inner.iter_singles(),
         }
     }
     #[inline]
     pub fn delete(&mut self, id: Id<M>) {
-        if cfg!(test) || true {
-            assert!(self.exists(id));
-        }
-        self.deleting.get_mut().push(id);
+        self.event_commitment.put(EventCommitment::Delete { event: true });
+        self.inner.delete(id.0);
     }
-    pub fn delete_extend(&mut self, i: impl Iterator<Item=Id<M>>) {
-        let i = {
-            assert!(cfg!(test) || true);
-            let i = i.collect::<Vec<Id<M>>>();
-            for &id in &i {
-                assert!(self.exists(id));
-            }
-            i
-        }.into_iter();
-        self.deleting.get_mut().extend(i);
+    pub fn delete_extend(&mut self, i: impl Iterator<Item=Id<M>> + Clone) {
+        self.event_commitment.put(EventCommitment::Delete { event: true });
+        self.inner.delete_ids(i.map(|i| {
+            let i = i.to_raw();
+            i..=i
+        }));
     }
-    pub fn delete_extend_ranges(&mut self, i: impl Iterator<Item=RangeInclusive<Id<M>>>) {
-        let i = {
-            assert!(cfg!(test) || true);
-            let i = i.collect::<Vec<RangeInclusive<Id<M>>>>();
-            for run in &i {
-                for r in run.start().to_usize()..=run.end().to_usize() {
-                    let r = Id::from_usize(r);
-                    assert!(self.exists(r));
-                }
-            }
-            i
-        }.into_iter();
-        let deleting = self.deleting.get_mut();
-        deleting.data.reserve(i.size_hint().0);
-        for run in i {
-            deleting.push_run(run);
+    pub fn delete_extend_ranges(&mut self, i: impl Iterator<Item=RangeInclusive<Id<M>>> + Clone) {
+        self.event_commitment.put(EventCommitment::Delete { event: true });
+        self.inner.delete_ids(i.map(|i| {
+            i.start().to_raw()..=i.end().to_raw()
+        }));
+    }
+    pub fn removing<'this, 'iter>(&'this mut self) -> ListRemoving2<'iter, M>
+    where
+        'this: 'iter,
+    {
+        self.event_commitment.half_commit(false);
+        //assert!(!self.rm_id_live);
+        // We need to return a self-borrowing iterator, lol? Uh-oh.
+        let (iter, deleter) = self.inner.iter_singles_deleting();
+        ListRemoving2 {
+            _m: PhantomData,
+            //rm_id_live: &mut self.rm_id_live,
+            iter,
+            deleter,
+            event_commitment: &mut self.event_commitment as *mut _,
         }
     }
-    #[inline]
+    /*#[inline]
     pub fn removing(&mut self) -> ListRemoving<'static, M> {
+        self.event_commitment.half_commit(false);
         // NB: This is unsound. This is done intentionally.
         // It makes usage nicer. Don't do weird things.
         // See `removing2()` for the sound version. It's a pain.
@@ -563,6 +563,7 @@ impl<M: TableMarker> IdList<M> {
     where
         'a: 'b,
     {
+        self.event_commitment.half_commit(false);
         ListRemoving {
             checked: unsafe {
                 // Passing in self.len
@@ -570,167 +571,53 @@ impl<M: TableMarker> IdList<M> {
             },
             deleting: &self.deleting,
         }
-    }
+    }*/
     /// Creates a new Id, or returns a previously deleted Id.
     ///
     /// # Safety
     /// This function is unsafe because it does not push anything to the tables's column vectors.
     pub unsafe fn recycle_id_no_event(&mut self) -> Result<Id<M>, Id<M>> {
-        if let Some(id) = self.free.pop() {
-            Ok(id)
-        } else {
-            let id = Id::from_usize(self.outer_capacity);
-            self.outer_capacity += 1;
-            Err(id)
+        self.event_commitment.put(EventCommitment::Push { event: false });
+        match self.inner.recycle_id() {
+            Ok(id) => Ok(Id(id)),
+            Err(id) => Err(Id(id)),
         }
     }
     /// Returns a list of IDs in an arbitrary order.
     /// # Safety
     /// This function is unsafe because it does not push anything to the tables's column vectors.
-    pub unsafe fn recycle_ids_no_event(&mut self, mut n: usize) -> Recycle<M> {
-        let mut replace = RunList::<M>::new();
-        if n == 0 {
-            return Recycle { replace, extend: 0, extension: UncheckedIdRange::empty() };
+    pub unsafe fn recycle_ids_no_event(&mut self, n: usize) -> Recycle<M> {
+        self.event_commitment.put(EventCommitment::Push { event: false });
+        let n = M::RawId::from_usize(n);
+        let recycle = self.inner.recycle_ids_sparse(n);
+        Recycle {
+            replace: RunList { inner: recycle.replace },
+            extend: M::RawId::to_usize(recycle.extend),
+            extension: IdRange {
+                _a: PhantomData,
+                start: Id(recycle.extension.start),
+                end: Id(recycle.extension.end),
+            },
         }
-        // This is quite a lazy algorithm.
-        while let Some((a, b)) = self.free.data.pop() {
-            if a > b {
-                n -= 1;
-                replace.push(a);
-            } else {
-                let d = (b.to_usize() - a.to_usize()) + 1;
-                if n < d {
-                    let cut = Id::from_usize(a.to_usize() + n);
-                    let run = a..=cut.step(-1);
-                    replace.push_run(run.clone());
-                    self.free.data.push((cut, b));
-                    n = 0;
-                    break;
-                }
-                n -= d;
-                let run = a..=b;
-                replace.push_run(run.clone());
-            }
-            if n == 0 { break; }
-        }
-        let extension = if n > 0 {
-            let extension = UncheckedIdRange::new(Id::from_usize(self.outer_capacity), Id::from_usize(self.outer_capacity + n));
-            self.outer_capacity += n;
-            extension
-        } else {
-            UncheckedIdRange::empty()
-        };
-        replace.sort();
-        Recycle { replace, extend: n, extension }
     }
     /// Note: This method is `O(self.free.data.len())`
     /// # Safety
     /// This function is unsafe because it does not push anything to the tables's column vectors.
     pub unsafe fn recycle_ids_contiguous_no_event(&mut self, n: usize) -> Recycle<M> {
-        if n == 0 {
-            return Recycle {
-                replace: RunList::new(),
-                extend: 0,
-                extension: UncheckedIdRange::empty(),
-            };
-        }
-        if n == 1 {
-            // Special handling required because a (b, a) case would be skipped.
-            let id = self.recycle_id_no_event();
-            return match id {
-                Ok(id) => Recycle {
-                    replace: RunList::on(id),
-                    extend: 0,
-                    extension: UncheckedIdRange::empty(),
-                },
-                Err(id) => Recycle {
-                    replace: RunList::new(),
-                    extend: 1,
-                    extension: UncheckedIdRange::on(id),
-                },
-            };
-        }
-        #[derive(Copy, Clone)]
-        struct Found<M: TableMarker> {
-            replace: UncheckedIdRange<M>,
-            waste: usize,
-            hole: ChangeHole<M>,
-            to_push: usize,
-            result: UncheckedIdRange<M>,
-        }
-        #[derive(Copy, Clone)]
-        enum ChangeHole<M: TableMarker> {
-            Remove {
-                i: usize,
-            },
-            Update {
-                i: usize,
-                to: (Id<M>, Id<M>),
-            },
-            Nothing,
-        }
-        let mut best = Found {
-            replace: UncheckedIdRange::empty(),
-            waste: usize::MAX,
-            hole: ChangeHole::Nothing,
-            to_push: n,
-            result: UncheckedIdRange::new(Id::from_usize(self.outer_capacity), Id::from_usize(self.outer_capacity + n)),
-        };
-        for (i, &(a, b)) in self.free.data.iter().enumerate().rev(/* remove from end */) {
-            if a >= b { continue; } // FIXME: We might waste a little bit w/ trimming.
-            let d = b.to_usize() - a.to_usize();
-            let here = if d < n {
-                if b.to_usize() != self.outer_capacity {
-                    continue;
-                }
-                // Doesn't fit in this hole, but maybe it could be enlarged.
-                // It's only slightly better than pushing to the end. If it weren't, we'd prefer it
-                // unreasonably and not use up large gaps as often as we could. And this will
-                // indeed minimize the number of vector resizes.
-                //
-                // |--==========================-------===|  [- taken, = free]
-                //    11111111111111111111113333       222222
-                //    222                              113
-                Found {
-                    replace: IdRange::new(a, b),
-                    waste: usize::MAX - 1,
-                    hole: ChangeHole::Remove { i },
-                    to_push: n - d,
-                    result: IdRange::new(a, Id::from_usize(a.to_usize() + n)),
-                }
-            } else {
-                let cut_at = Id::from_usize(a.to_usize() + n);
-                let replace = IdRange::new(a, cut_at);
-                let waste = b.to_usize() - cut_at.to_usize();
-                let hole = if waste == 0 {
-                    ChangeHole::Remove { i }
-                } else {
-                    ChangeHole::Update {
-                        i,
-                        to: (cut_at.step(1), b),
-                    }
-                };
-                Found { replace, waste, hole, to_push: 0, result: replace }
-            };
-            if best.waste >= here.waste {
-                best = here;
-                if best.waste == 0 { break; }
-            }
-        }
-        match best.hole {
-            ChangeHole::Remove { i } => { self.free.data.remove(i); },
-            ChangeHole::Update { i, to } => { self.free.data[i] = to; },
-            ChangeHole::Nothing => (),
-        }
-        assert_eq!(best.result.len(), n);
-        self.outer_capacity += best.to_push;
-        // FIXME: Isn't it weird that we change self.outer_capacity but not self.pushing?
+        self.event_commitment.put(EventCommitment::Push { event: false });
+        let n = M::RawId::from_usize(n);
+        let recycle = self.inner.recycle_ids_contiguous(n);
         Recycle {
-            replace: RunList::from(best.replace),
-            extend: best.to_push,
-            extension: best.result,
+            replace: RunList { inner: recycle.replace },
+            extend: M::RawId::to_usize(recycle.extend),
+            extension: IdRange {
+                _a: PhantomData,
+                start: Id(recycle.extension.start),
+                end: Id(recycle.extension.end),
+            },
         }
     }
+    /*
     /// The next Id that will be used for the next call to push. Be aware that calling this
     /// multiple times will return the same ID.
     pub fn next(&self) -> Id<M> {
@@ -740,15 +627,16 @@ impl<M: TableMarker> IdList<M> {
                 Id::from_usize(self.outer_capacity)
             })
     }
+    */
     pub fn check<'a, 'b>(&'a self, i: impl Check<M=M> + 'b) -> CheckedId<'a, M> {
         unsafe {
-            i.check_from_len(
+            i.check_from_capacity(
                 PhantomData::<&'a M>,
-                self.outer_capacity,
+                self.outer_capacity(),
             )
         }
     }
-    pub fn event_push(&mut self, id: Id<M>) {
+    /*pub fn event_push(&mut self, id: Id<M>) {
         self.pushing.push(id);
     }
     pub fn event_push_run(&mut self, run: UncheckedIdRange<M>) {
@@ -760,30 +648,57 @@ impl<M: TableMarker> IdList<M> {
     pub fn event_push_run_inclusive(&mut self, run: RangeInclusive<Id<M>>) {
         assert!(run.start() <= run.end());
         self.pushing.push_run(run);
-    }
+    }*/
 }
 impl<'a, M: TableMarker> IntoIterator for &'a IdList<M> {
     type Item = CheckedId<'a, M>;
     type IntoIter = CheckedIter<'a, M>;
     fn into_iter(self) -> Self::IntoIter { self.iter() }
 }
-pub struct ListRemoving<'a, M: TableMarker> {
-    checked: CheckedIter<'a, M>,
-    deleting: &'a SyncRef<M>,
-    // FIXME: Make it &mut Vec :(
+pub struct ListRemoving2<'a, M: TableMarker> {
+    _m: PhantomData<&'a mut IdList<M>>,
+    iter: runlist::IterIdsSingles<'a, M::RawId>,
+    deleter: runlist::Deleter<'a, M::RawId>,
+    event_commitment: *mut EventCommitment,
 }
-impl<'a, M: TableMarker> Iterator for ListRemoving<'a, M> {
+impl<'a, M: TableMarker> Iterator for ListRemoving2<'a, M> {
     type Item = RmId<'a, M>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.checked.next()
-            .map(|id| {
-                RmId {
-                    id: id.uncheck(),
-                    deleting: unsafe { self.deleting.as_cell_unsafe() },
-                }
-            })
+        let deleter = &mut self.deleter as *mut _;
+        self.iter.next().map(move |id| RmId {
+            id: Id(id),
+            deleter,
+            event_commitment: self.event_commitment,
+        })
     }
 }
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum EventCommitment {
+    None,
+    Push { event: bool },
+    Delete { event: bool },
+}
+impl Default for EventCommitment { fn default() -> Self { EventCommitment::None } }
+impl EventCommitment {
+    pub fn half_commit(&self, push: bool) {
+        match (push, self) {
+            (_, EventCommitment::None) => (),
+            (true, EventCommitment::Push { .. }) => (),
+            (false, EventCommitment::Push { .. }) => (),
+            _ => panic!("half-commit failed. Already {:?}, want push = {:?}", self, push),
+        }
+    }
+    pub fn put(&mut self, new: EventCommitment) {
+        if let EventCommitment::None = self {
+            assert!(new != EventCommitment::None);
+            *self = new;
+        } else {
+            assert!(*self == new, "Can't mix event commitments: existing was {:?}, new is {:?}", self, new);
+        }
+    }
+}
+
 unsafe impl<'a, M: TableMarker> ExtractOwned for &'a IdList<M> {
     type Ty = IdList<M>;
     const ACC: Access = Access::Read;
@@ -801,29 +716,19 @@ unsafe impl<'a, M: TableMarker> Extract for &'a mut IdList<M> {
         rez.take_mut_downcast()
     }
     unsafe fn convert(_universe: &Universe, owned: *mut Self::Owned) -> Self {
-        &mut *owned
+        *owned
     }
     type Cleanup = IdListCleanup;
 }
 pub const TRACK_PUSH: u8 = 1;
 pub const TRACK_DELETE: u8 = 2;
 #[doc(hidden)]
-pub struct IdListCleanup {
-    tracked_events: u8,
-    nothing: bool,
-}
+pub struct IdListCleanup;
 unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
-    fn pre_cleanup(owned: &'a mut IdList<M>, universe: &Universe) -> Self {
-        let tracked_events = {
-            let p = universe.has::<Tracker<Pushed<M>>>();
-            let d = universe.has::<Tracker<Deleted<M>>>();
-            (if p { TRACK_PUSH } else { 0 }) | (if d { TRACK_DELETE } else { 0 })
-        };
-        let nothing = owned.pushing.is_empty() && owned.deleting.get_mut().is_empty();
-        IdListCleanup { tracked_events, nothing }
+    fn pre_cleanup(_owned: &'a mut IdList<M>, _universe: &Universe) -> Self {
+        IdListCleanup
     }
     fn post_cleanup(self, universe: &Universe) {
-        if self.nothing { return; }
         // FIXME: this needs to happen without any other thread having the opportunity to acquire
         // locks. We could have a bit of state on 'verse that says "you can only release locks",
         // and we can set it in the cleanup() closure, and temporarily release it here.
@@ -834,7 +739,7 @@ unsafe impl<'a, M: TableMarker> Cleaner<&'a mut IdList<M>> for IdListCleanup {
         // Possibly the problem is that any arbitrary dang thing can have a dependence hanging off
         // of the event being processed. We can't even look ahead! And it could be very recursive!
         universe.with_mut(|owned: &mut IdList<M>| {
-            owned.flush(universe, self.tracked_events);
+            owned.flush(universe);
         });
     }
 }
@@ -850,20 +755,31 @@ impl<M: TableMarker> Recycle<M> {
     pub fn count(&self) -> usize {
         self.extend + self.replace.len()
     }
-    pub fn add_push_events(&self, ids: &mut IdList<M>) {
+    /*pub fn add_push_events(&self, ids: &mut IdList<M>) {
         for run in self.replace.iter_runs() {
             ids.event_push_run_inclusive(run);
         }
         ids.event_push_run(self.extension);
-    }
+    }*/
 }
 
 /// An `Id` with a method for removing the row.
-#[derive(Copy, Clone)]
 pub struct RmId<'a, M: TableMarker> {
-    id: Id<M>,
-    deleting: &'a RefCell<RunList<M>>,
+    pub id: Id<M>,
+    deleter: *mut runlist::Deleter<'a, M::RawId>,
+    event_commitment: *mut EventCommitment,
 }
+impl<'a, M: TableMarker> RmId<'a, M> {
+    pub fn id(&self) -> Id<M> {
+        self.id
+    }
+    pub fn remove(self) {
+        unsafe { &mut *self.event_commitment }.put(EventCommitment::Delete { event: true });
+        let deleter = unsafe { &mut *self.deleter };
+        deleter.delete(self.id.to_raw());
+    }
+}
+
 impl<'a, M: TableMarker> fmt::Debug for RmId<'a, M> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.id)
@@ -885,60 +801,35 @@ impl<'a, M: TableMarker> Ord for RmId<'a, M> {
         self.id.cmp(&other.id)
     }
 }
-impl<'a, M: TableMarker> RmId<'a, M> {
-    pub fn remove(self) {
-        self.deleting.borrow_mut().push(self.id);
-    }
-}
-unsafe impl<'a, M: TableMarker> Check for RmId<'a, M> {
+/*unsafe impl<'a, M: TableMarker> Check for RmId<'a, M> {
     type M = M;
     fn to_usize(&self) -> usize {
         self.id.to_usize()
     }
     unsafe fn from_usize(_i: usize) -> Self { unimplemented!() }
     fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.id.0 }
-    unsafe fn step(self, d: i8) -> Self {
-        RmId {
-            id: self.id.step(d),
-            ..self
-        }
+    unsafe fn step(mut self, d: i8) -> Self {
+        self.id = self.id.step(d);
+        self
     }
-}
+}*/
 
+#[derive(Debug, Clone)]
 pub struct CheckedIter<'a, M: TableMarker> {
-    range: UncheckedIdRange<M>,
-    free: Peekable<RunListIter<'a, M>>,
-}
-impl<'a, M: TableMarker> CheckedIter<'a, M> {
-    pub unsafe fn new(outer_capacity: usize, free: &'a RunList<M>) -> Self {
-        CheckedIter {
-            range: IdRange::to(Id::from_usize(outer_capacity)),
-            free: free.iter().peekable(),
-        }
-    }
-    pub unsafe fn over(range: UncheckedIdRange<M>, free: &'a RunList<M>) -> Self {
-        CheckedIter {
-            range,
-            free: free.iter().peekable(),
-        }
-    }
+    // NB: Soundness requires these be private.
+    inner: runlist::IterIdsSingles<'a, M::RawId>,
 }
 impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
     type Item = CheckedId<'a, M>;
     fn next(&mut self) -> Option<Self::Item> {
-        // FIXME: range=1 billion to 1 billion+1, exclude=0 to 1 billion
-        while let Some(id) = self.range.step() {
-            loop {
-                match self.free.peek().map(|e| id.cmp(e)).unwrap_or(Ordering::Less) {
-                    Ordering::Equal => break,
-                    Ordering::Greater => self.free.next(),
-                    Ordering::Less => return Some(CheckedId { table: PhantomData, id }),
-                };
-            }
-        }
-        None
+        self.inner.next().map(|id| CheckedId {
+            table: PhantomData,
+            id: Id(id),
+        })
     }
-    // FIXME: impl a size_hint
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
 }
 
 /// Stores `Id`s with great efficiency. Runs are stored like a `RangeInclusive`. (In the case of a
@@ -951,357 +842,103 @@ impl<'a, M: TableMarker> Iterator for CheckedIter<'a, M> {
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RunList<M: TableMarker> {
-    len: usize,
-    data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>,
-    // FIXME: is_sorted: bool,
+    inner: runlist::RunList<M::RawId>,
 }
 impl<M: TableMarker> fmt::Debug for RunList<M> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[")?;
-        let mut first = true;
-        for (a, b) in &self.data {
-            if first {
-                first = false;
-            } else {
-                write!(f, ", ")?;
-            }
-            match a.cmp(b) {
-                Ordering::Less => write!(f, "{:?}..={:?}", a, b),
-                Ordering::Equal => write!(f, "{:?}", a),
-                Ordering::Greater => write!(f, "{:?}, {:?}", b, a),
-            }?;
+        write!(f, "[{:?}]", self.inner)
+    }
+}
+impl<M: TableMarker, X: Into<runlist::Run<M::RawId>>> From<X> for RunList<M> {
+    fn from(run: X) -> RunList<M> {
+        RunList {
+            inner: runlist::RunList::on(run),
         }
-        write!(f, "](len={})", self.len)
     }
 }
-impl<M: TableMarker> From<RangeInclusive<Id<M>>> for RunList<M> {
-    fn from(run: RangeInclusive<Id<M>>) -> Self {
-        let mut data = smallvec::SmallVec::<[(Id<M>, Id<M>); 2]>::new();
-        data.push((*run.start(), *run.end()));
-        let len = 1 + run.end().to_usize() - run.start().to_usize();
-        RunList { len, data }
-    }
-}
-impl<M: TableMarker> From<UncheckedIdRange<M>> for RunList<M> {
+impl<M: TableMarker + Check> From<UncheckedIdRange<M>> for RunList<M> {
     fn from(run: UncheckedIdRange<M>) -> Self {
-        if run.start == run.end {
-            return Self::new();
+        let mut inner = runlist::RunList::<M::RawId>::default();
+        if !run.is_empty() {
+            use std::convert::TryInto;
+            let run: runlist::Run::<M::RawId> = (run.start.0 .. run.end.0).try_into().unwrap();
+            inner.push(run);
         }
-        let mut data = smallvec::SmallVec::<[(Id<M>, Id<M>); 2]>::new();
-        data.push((run.start, run.end));
-        let len = run.end.to_usize() - run.start.to_usize();
-        RunList { len, data }
+        RunList { inner }
     }
 }
 impl<M: TableMarker> RunList<M> {
     pub fn new() -> Self { Self::default() }
     pub fn on(id: Id<M>) -> Self {
-        let mut data = smallvec::SmallVec::<[(Id<M>, Id<M>); 2]>::new();
-        data.push((id, id));
-        RunList { len: 1, data }
+        Self { inner: runlist::RunList::on(id.0) }
     }
-    pub fn get_data(&self) -> &smallvec::SmallVec<[(Id<M>, Id<M>); 2]> {
-        &self.data
+    pub fn get_data(&self) -> &[(Id<M>, Id<M>)] {
+        let data: &[runlist::Run<M::RawId>] = self.inner.data();
+        unsafe { std::mem::transmute(data) }
     }
-    pub fn from_raw_data(len: usize, data: smallvec::SmallVec<[(Id<M>, Id<M>); 2]>) -> Result<Self, String> {
-        let ret = Self { len, data };
-        ret.validate_data()?;
-        Ok(ret)
-    }
-    #[inline(always)]
-    fn validate(&self) {
-        if cfg!(test) || true {
-            self.validate_data().unwrap();
+    pub fn from_raw_data(len: usize, data: Vec<runlist::Run<M::RawId>>) -> Result<Self, String> {
+        let inner = runlist::RunList::from_data(data)?;
+        let actual = inner.len();
+        if actual != len {
+            return Err(format!("RunList length not as advertised: actual = {}, given = {}", actual, len));
         }
+        Ok(RunList { inner })
     }
-    pub fn validate_data(&self) -> Result<(), String> {
-        let actual = self.iter().count();
-        if actual == self.len {
-            use std::collections::HashSet;
-            let dedupe = self.iter().collect::<HashSet<_>>();
-            if dedupe.len() != self.len {
-                return Err(format!("bad RunList, has duplicated entries.\ndata={:?}\ndedupe={:?}", self.data, dedupe));
-            }
-            Ok(())
-        } else {
-            Err(format!("bad RunList.\nlen={}\ndata={:?}\nraw={:?}", self.len, self, self.data))
-        }
-    }
-    pub fn check_len(&self) -> Result<(), String> {
-        let actual = self.iter().count();
-        if actual == self.len {
-            return Ok(());
-        }
-        Err(format!("self.len = {} != {} = actual; in {:?}", self.len, actual, self))
-    }
-    #[inline]
-    pub fn len(&self) -> usize {
-        if cfg!(test) || true {
-            self.check_len().unwrap();
-        }
-        self.len
-    }
-    pub fn is_empty(&self) -> bool { self.iter().next().is_none() }
-    pub fn push(&mut self, i: Id<M>) {
-        self.validate();
-        self.len += 1;
-        let last = M::RawId::LAST;
-        // (a < b) --> a..=b
-        // (a = b) --> [a]
-        // (a > b) --> [b, a]
-        let new = if let Some(old) = self.data.pop() {
-            let (a, b) = old;
-            //if i == a || i == b { return; }
-            match a.cmp(&b) {
-                Ordering::Less => {
-                    if b.0 != last && b.step(1) == i {
-                        (a, i)
-                    } else if i.0 != last && i.step(1) == a {
-                        (i, b)
-                    } else {
-                        self.data.push(old);
-                        (i, i)
-                    }
-                }
-                Ordering::Equal => {
-                    if a.0 != last && a.step(1) == i {
-                        (a, i)
-                    } else if i.0 != last && i.step(1) == a {
-                        (i, a)
-                    } else if i > a {
-                        (i, a)
-                    } else if a == i {
-                        self.len -= 1;
-                        (a, a)
-                    } else {
-                        (a, i)
-                    }
-                }
-                Ordering::Greater => {
-                    // Two separate, [b, a].
-                    let s = {
-                        // known: a > b
-                        // so output starts [b, a]. But where does i go?
-                        if i < b {
-                            [i, b, a]
-                        } else if i < a {
-                            [b, i, a]
-                        } else {
-                            [b, a, i]
-                        }
-                    };
-                    if cfg!(test) || true {
-                        let mut g = [a, b, i];
-                        g.sort();
-                        assert_eq!(s, g);
-                    }
-                    // All these items are separate.
-                    // OR ARE THEY? 0,1 might merge. And 1,2 might merge. And 0,1,2 might merge
-                    // also.
-                    // Another issue: If we have [8, 8, 14], then self.len is wrong.
-                    if s[0].0 != last && s[0].step(1) == s[1] {
-                        if s[1].0 != last && s[1].step(1) == s[2] {
-                            // Filled in a hole.
-                            (s[0], s[2])
-                        } else {
-                            self.data.push((s[0], s[1]));
-                            (s[2], s[2])
-                        }
-                    } else if s[1].0 != last && s[1].step(1) == s[2] {
-                        self.data.push((s[0], s[0]));
-                        (s[1], s[2])
-                    } else if s[0] == s[1] || s[1] == s[2] {
-                        // Nothing happened.
-                        self.len -= 1;
-                        (s[2], s[0])
-                    } else {
-                        self.data.push((s[1], s[0]));
-                        (s[2], s[2])
-                    }
-                }
-            }
-        } else {
-            (i, i)
-        };
-        self.data.push(new);
-        self.validate();
-    }
-    pub fn push_run(&mut self, r: RangeInclusive<Id<M>>) {
-        // FIXME: This can be better.
-        self.validate();
-        // FIXME: if r.is_empty() { return; }
-        let l = *r.start();
-        let h = *r.end();
-        assert!(h >= l, "bad run: {:?}", r);
-        self.len += 1 + h.to_usize() - l.to_usize();
-        if let Some((a, b)) = self.data.last_mut() {
-            // We're just gonna assume that r is not inclusive with any existing run.
-            // So we handle [0..=5], [6..=9], but not [0..=5], [5..=9] or [0..=5], [0..=9].
-            if a <= b && b.step(1) == l {
-                *b = h;
-                return;
-            }
-            // A possibility:
-            // if a > b && a+1 == l:
-            //     [b], a..=h
-            // No immediate benefit to this atm.
-        }
-        self.data.push((l, h));
-        self.validate();
-    }
-    pub fn pop(&mut self) -> Option<Id<M>> {
-        self.validate();
-        let r = if let Some((a, b)) = self.data.pop() {
-            self.len -= 1;
-            Some(match a.cmp(&b) {
-                Ordering::Greater => {
-                    self.data.push((b, b));
-                    a
-                },
-                Ordering::Equal => a,
-                Ordering::Less => {
-                    self.data.push((a, b.step(-1)));
-                    b
-                },
-            })
-        } else {
-            None
-        };
-        self.validate();
-        r
-    }
-    pub fn last(&self) -> Option<Id<M>> {
-        if let Some((a, b)) = self.data.last().cloned() {
-            Some(match a.cmp(&b) {
-                Ordering::Greater => a,
-                Ordering::Equal => a,
-                Ordering::Less => b,
-            })
-        } else {
-            None
-        }
-    }
-    pub fn clear(&mut self) {
-        self.validate();
-        self.len = 0;
-        self.data.clear();
-        self.validate();
-    }
-    pub fn iter(&self) -> RunListIter<M> {
-        self.into_iter()
-    }
-    pub fn extend_from(&mut self, new: Self) {
-        self.data.extend(new.data);
-        self.len += new.len;
-        self.validate();
-    }
+    pub fn validate_data(&self) -> Result<(), String> { self.inner.assert() }
+    #[inline] pub fn len(&self) -> usize { self.inner.len() }
+    #[inline] pub fn is_empty(&self) -> bool { self.inner.is_empty() }
+    #[inline] pub fn push(&mut self, i: Id<M>) { self.inner.push(i.0); }
+    #[inline] pub fn push_run(&mut self, r: RangeInclusive<Id<M>>) { self.inner.push(r.start().0 ..= r.end().0); }
+    #[inline] pub fn pop(&mut self) -> Option<Id<M>> { self.inner.pop_arbitrary().map(Id::<M>) }
+    #[inline] pub fn clear(&mut self) { self.inner.clear(); }
+    #[inline] pub fn iter(&self) -> RunListIterSingles<M> { RunListIterSingles(self.inner.iter_singles()) }
+    #[inline] pub fn contains(&self, id: Id<M>) -> bool { self.inner.contains(id.to_raw()) }
+    #[inline] pub fn iter_runs(&self) -> RunListIterRanges<M> { RunListIterRanges(self.inner.iter_ranges()) }
     pub fn extend(&mut self, iter: impl Iterator<Item=Id<M>>) {
+        // Reserve isn't possible.
         for id in iter {
-            self.push(id);
-        }
-        self.validate();
-    }
-    pub fn contains(&self, id: Id<M>) -> bool {
-        for run in self.iter_runs() {
-            if run.contains(&id) { return true; }
-        }
-        false
-    }
-    pub fn iter_runs<'a>(&'a self) -> impl Iterator<Item=RangeInclusive<Id<M>>> + 'a {
-        struct Iter<'a, M: TableMarker> {
-            buff: Option<RangeInclusive<Id<M>>>,
-            data: &'a [Run<M>],
-        }
-        impl<'a, M: TableMarker> Iterator for Iter<'a, M> {
-            type Item = RangeInclusive<Id<M>>;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                if self.buff.is_some() {
-                    self.buff.take()
-                } else if let Some(head) = self.data.first() {
-                    self.data = &self.data[1..];
-                    Some(if head.1 < head.0 {
-                        self.buff = Some(head.0..=head.0);
-                        head.1..=head.1
-                    } else {
-                        head.0..=head.1
-                    })
-                } else {
-                    None
-                }
-            }
-        }
-        Iter {
-            buff: None,
-            data: self.data.as_slice()
+            self.inner.push(id.to_raw());
         }
     }
-    pub fn sort(&mut self) {
-        // FIXME: This could be more efficient, but that is, WOW, that's complicated.
-        let mut runs = Vec::with_capacity(self.data.len() * 2);
-        runs.extend(self.iter_runs());
-        runs.sort_by_key(|run| *run.start());
-        self.data.clear();
-        self.data.reserve(runs.len());
-        self.len = 0;
-        for run in runs.into_iter() {
-            self.push_run(run);
-        }
-        self.validate();
-    }
-    // FIXME: fn compact(&mut self);
     // FIXME: fn merge(&mut self, other: &Self);
 }
+// FIXME: Ugh! IntoIterator for RunList. Do I want it? I actually don't use RunList directly very often...
 impl<'a, M: TableMarker> IntoIterator for &'a RunList<M> {
     type Item = Id<M>;
-    type IntoIter = RunListIter<'a, M>;
-    fn into_iter(self) -> Self::IntoIter {
-        RunListIter {
-            buffer: None,
-            data: &self.data[..],
-        }
+    type IntoIter = RunListIterSingles<'a, M>;
+    fn into_iter(self) -> Self::IntoIter { self.iter() }
+}
+#[derive(Debug)]
+pub struct RunListIterSingles<'a, M: TableMarker>(runlist::IterSingles<'a, M::RawId>);
+impl<'a, M: TableMarker> Clone for RunListIterSingles<'a, M> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
-pub struct RunListIter<'a, M: TableMarker> {
-    buffer: Option<(Id<M>, Id<M>)>,
-    data: &'a [(Id<M>, Id<M>)],
-}
-impl<'a, M: TableMarker> Iterator for RunListIter<'a, M> {
+impl<'a, M: TableMarker> Iterator for RunListIterSingles<'a, M> {
     type Item = Id<M>;
-    // FIXME: impl size_hint
-    fn next(&mut self) -> Option<Self::Item> {
-        let buff = if let Some(buff) = self.buffer.take() {
-            buff
-        } else if let Some((&x, xs)) = self.data.split_first() {
-            self.data = xs;
-            x
-        } else {
-            return None;
-        };
-        let (a, b) = buff;
-        // (a < b) --> a..=b
-        // (a = b) --> [a]
-        // (a > b) --> [b, a]
-        match a.cmp(&b) {
-            Ordering::Less => {
-                let buff = (a.step(1), b);
-                if buff.0 <= buff.1 {
-                    self.buffer = Some(buff);
-                }
-                Some(a)
-            }
-            Ordering::Equal => {
-                self.buffer = None;
-                Some(a)
-            }
-            Ordering::Greater => {
-                // NOTE: We return b first, since it's the lesser.
-                self.buffer = Some((a, a));
-                Some(b)
-            }
-        }
-    }
+    #[inline] fn next(&mut self) -> Option<Self::Item> { self.0.next().map(Id::<M>::new) }
+    #[inline] fn size_hint(&self) -> (usize, Option<usize>) { self.0.size_hint() }
 }
+#[derive(Debug, Clone)]
+pub struct RunListIterRanges<'a, M: TableMarker>(runlist::IterRanges<'a, M::RawId>);
+impl<'a, M: TableMarker> Iterator for RunListIterRanges<'a, M> {
+    type Item = IdRange<'static, Id<M>>;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0
+            .next()
+            .map(|run: RangeInclusive<M::RawId>| -> IdRange<'static, Id<M>> {
+                IdRange {
+                    _a: PhantomData,
+                    start: Id::new(*run.start()),
+                    end: Id::new(*run.end()).step(1),
+                }
+            })
+    }
+    #[inline] fn size_hint(&self) -> (usize, Option<usize>) { self.0.size_hint() }
+}
+
 
 #[cfg(feature = "bincode")]
 mod bincode_impls {
@@ -1376,7 +1013,7 @@ mod test_run_list {
             self.seen_fast.clear();
             self.slow.push(i);
             self.fast.push(i);
-            println!("{:?}", self.fast.data);
+            println!("{:?}", self.fast);
             // assert_eq!(self.slow.iter().count(), self.fast.iter().count());
             for f in self.fast.iter() {
                 println!("    {}", f.0);
@@ -1397,7 +1034,7 @@ mod test_run_list {
             println!("{}", x);
             c.push(Id(x));
         }
-        c.fast.data.len()
+        c.fast.len()
     }
     fn checks(x: &[u8]) {
         check(x.iter().map(|&x| x));
@@ -1416,7 +1053,8 @@ mod test_run_list {
         checks(&[0, 1, 3, 4, 6]);
     }
     #[test]
-    fn efficient_when_backwards() {
+    #[should_panic]
+    fn backwards() {
         let got_len = check((0..20).rev());
         assert_eq!(got_len, 1);
     }
@@ -1427,49 +1065,7 @@ mod test_run_list {
     }
 
     #[test]
-    fn unordered_ranges() {
-        let mut l = RunList::<M>::default();
-        for i in 20..30 {
-            l.push(Id(i));
-        }
-        for i in 0..10 {
-            l.push(Id(i));
-        }
-    }
-
-    #[test]
-    fn random_insertions() {
-        let some_random_fucking_numbers_jesus_christ_how_fucking_hard_is_this_gonna_have_to_be_fuck_off_for_fucks_sake_fuckity_fuckity_fuck_fuck_fuck_you = &[
-16, 3, 16, 1, 17, 18, 11, 10, 1, 17, 13, 15, 9, 12, 16, 2, 10, 8, 14, 19, 9, 2, 10, 3, 14, 6, 9, 9, 19, 3, 11, 6, 4, 7, 2, 20, 7, 15, 20, 1, 9, 4, 14, 8, 1, 18, 0, 17, 8, 15,
-13, 4, 13, 3, 20, 10, 16, 12, 8, 12, 10, 6, 0, 10, 17, 18, 19, 4, 14, 2, 10, 13, 3, 20, 4, 14, 2, 8, 8, 3, 5, 17, 8, 0, 0, 11, 7, 6, 3, 0, 0, 20, 8, 4, 20, 15, 19, 2, 13, 0,
-1, 3, 18, 12, 0, 16, 16, 14, 4, 0, 18, 19, 8, 6, 12, 16, 14, 14, 5, 1, 14, 4, 13, 2, 4, 4, 0, 19, 7, 13, 0, 1, 18, 15, 14, 0, 0, 17, 0, 16, 15, 19, 14, 17, 15, 1, 2, 12, 9, 19,
-12, 20, 15, 2, 6, 9, 14, 3, 18, 20, 9, 15, 15, 13, 5, 9, 7, 9, 19, 19, 9, 17, 5, 5, 14, 15, 20, 0, 19, 4, 12, 1, 2, 18, 12, 10, 11, 16, 11, 13, 8, 8, 19, 4, 5, 13, 17, 4, 13, 4,
-15, 17, 1, 15, 11, 15, 18, 12, 8, 15, 8, 15, 18, 20, 1, 3, 4, 18, 10, 4, 4, 18, 11, 15, 13, 2, 13, 4, 3, 4, 7, 9, 18, 7, 11, 11, 8, 11, 16, 11, 4, 11, 15, 7, 8, 15, 8, 14, 3, 19,
-12, 3, 1, 14, 8, 18, 19, 20, 17, 19, 4, 1, 16, 2, 6, 13, 3, 10, 1, 4, 9, 19, 1, 3, 9, 5, 13, 7, 2, 16, 3, 6, 3, 2, 6, 11, 8, 7, 2, 9, 4, 11, 0, 11, 19, 17, 16, 17, 13, 10,
-7, 0, 9, 18, 11, 2, 13, 20, 7, 12, 14, 1, 20, 16, 11, 15, 6, 3, 5, 6, 12, 16, 16, 0, 16, 8, 5, 10, 15, 2, 18, 2, 11, 12, 20, 4, 17, 14, 3, 20, 9, 20, 7, 6, 16, 5, 2, 1, 3, 17,
-12, 1, 10, 8, 14, 8, 17, 7, 20, 17, 19, 7, 20, 15, 13, 7, 2, 8, 16, 15, 8, 20, 19, 4, 11, 9, 15, 2, 7, 18, 18, 9, 9, 8, 10, 13, 6, 9, 7, 5, 16, 20, 1, 17, 16, 8, 4, 17, 18, 13,
-18, 5, 11, 19, 6, 11, 7, 9, 1, 7, 0, 4, 13, 0, 14, 17, 14, 2, 5, 8, 2, 18, 7, 1, 12, 12, 6, 5, 19, 12, 17, 5, 2, 20, 0, 10, 15, 0, 8, 12, 2, 7, 11, 2, 4, 6, 11, 0, 2, 3,
-1, 2, 11, 20, 12, 13, 14, 6, 1, 6, 1, 6, 11, 11, 19, 13, 13, 6, 9, 11, 16, 7, 5, 2, 6, 5, 11, 9, 18, 9, 18, 13, 6, 8, 18, 15, 6, 3, 20, 7, 20, 13, 15, 17, 11, 0, 15, 16, 14, 17,
-16, 14, 13, 7, 2, 7, 0, 14, 20, 0, 9, 5, 19, 6, 18, 10, 5, 13, 0, 14, 19, 1, 1, 17, 18, 15, 15, 4, 6, 11, 6, 13, 13, 3, 12, 2, 14, 20, 17, 8, 9, 20, 13, 1, 19, 4, 8, 8, 4, 7,
-9, 14, 13, 12, 10, 7, 4, 0, 6, 15, 13, 2, 17, 4, 9, 15, 3, 13, 13, 5, 16, 17, 5, 13, 20, 20, 16, 13, 13, 20, 7, 0, 17, 9, 4, 14, 14, 14, 19, 6, 18, 4, 14, 3, 18, 10, 1, 12, 4, 5,
-6, 18, 20, 7, 8, 17, 17, 11, 1, 18, 9, 3, 0, 0, 8, 12, 0, 6, 8, 11, 14, 16, 13, 10, 8, 3, 7, 9, 0, 10, 13, 20, 13, 13, 10, 6, 1, 4, 6, 10, 3, 14, 9, 16, 8, 18, 17, 17, 6, 5,
-18, 18, 13, 19, 15, 18, 5, 0, 18, 8, 16, 12, 18, 16, 11, 12, 18, 5, 12, 10, 14, 14, 4, 19, 6, 13, 5, 10, 13, 0, 6, 13, 0, 16, 18, 1, 20, 8, 13, 9, 9, 19, 4, 19, 12, 19, 17, 3, 13, 14,
-2, 18, 19, 12, 11, 17, 9, 17, 5, 2, 6, 13, 15, 10, 20, 19, 12, 16, 18, 8, 1, 9, 14, 18, 15, 5, 11, 10, 15, 9, 13, 7, 8, 2, 9, 2, 11, 0, 3, 18, 9, 13, 13, 18, 14, 7, 2, 11, 2, 3,
-16, 1, 0, 13, 10, 17, 6, 2, 19, 8, 14, 11, 3, 2, 18, 18, 14, 1, 10, 20, 18, 7, 13, 13, 11, 8, 20, 15, 16, 5, 17, 12, 15, 17, 17, 10, 8, 14, 7, 14, 14, 6, 10, 19, 11, 9, 10, 5, 15, 5,
-1, 0, 0, 15, 4, 7, 12, 18, 1, 7, 9, 10, 18, 5, 16, 0, 8, 3, 18, 6, 10, 11, 4, 8, 12, 4, 20, 7, 5, 16, 2, 20, 17, 8, 12, 17, 15, 15, 14, 18, 13, 8, 8, 20, 10, 10, 1, 0, 12, 15,
-2, 14, 5, 14, 14, 18, 8, 7, 19, 20, 3, 2, 12, 18, 14, 6, 6, 5, 3, 17, 17, 11, 1, 6, 16, 19, 1, 9, 12, 1, 11, 15, 0, 16, 19, 10, 19, 2, 20, 19, 2, 2, 11, 14, 9, 2, 16, 7, 5, 13,
-2, 10, 16, 16, 18, 8, 2, 10, 5, 20, 12, 10, 12, 10, 2, 18, 10, 2, 9, 1, 4, 10, 14, 4, 11, 17, 17, 18, 1, 7, 20, 19, 3, 1, 5, 16, 4, 12, 16, 15, 5, 16, 6, 8, 7, 20, 11, 3, 14, 2,
-7, 10, 17, 2, 8, 15, 10, 19, 2, 8, 15, 9, 3, 14, 16, 9, 12, 15, 0, 7, 4, 18, 17, 14, 11, 20, 13, 17, 2, 9, 12, 18, 17, 11, 19, 13, 17, 20, 10, 4, 19, 11, 14, 6, 5, 3, 4, 15, 0, 14,
-        ];
-        let mut rng = some_random_fucking_numbers_jesus_christ_how_fucking_hard_is_this_gonna_have_to_be_fuck_off_for_fucks_sake_fuckity_fuckity_fuck_fuck_fuck_you.iter().cycle().cloned();
-        for _ in 0..200 {
-            let n = rng.next().unwrap();
-            let test = (0..n).map(|_| rng.next().unwrap());
-            check(test);
-        }
-    }
-
-    #[test]
+    #[should_panic]
     fn random_found() {
         check([3, 16, 1].iter().cloned());
     }
@@ -1490,7 +1086,7 @@ mod test_run_list {
                 for y in 1..x {
                     let mut l = IdList::<M>::default();
                     let u = &Universe::new();
-                    l.flush(u, 0);
+                    l.flush(u);
                     fn r<R>(r: Result<R, R>) -> R {
                         match r {
                             Ok(r) => r,
@@ -1504,14 +1100,14 @@ mod test_run_list {
                         l.len();
                     }
                     l.len();
-                    l.flush(u, 0);
+                    l.flush(u);
                     for _ in 0..y {
                         if let Some(id) = pushed.pop() {
                             l.delete(id);
                             l.len();
                         }
                     }
-                    l.flush(u, 0);
+                    l.flush(u);
                     l.len();
                 }
             }
@@ -1519,19 +1115,37 @@ mod test_run_list {
     }
 
     #[test]
-    fn thing() {
+    fn runlist_ordered() {
+        let mut l = RunList::<M>::default();
+        l.push(Id(8));
+        l.push(Id(14));
+        l.push(Id(17));
+    }
+    #[test]
+    #[should_panic]
+    fn runlist_duplicates() {
         let mut l = RunList::<M>::default();
         l.push(Id(8));
         l.push(Id(14));
         l.push(Id(8));
     }
+    #[test]
+    #[should_panic]
+    fn runlist_disordered() {
+        let mut l = RunList::<M>::default();
+        l.push(Id(7));
+        l.push(Id(8));
+        l.push(Id(9));
+        l.push(Id(3));
+    }
+
 
     #[test]
-    fn dude() {
+    fn dude1() {
         unsafe {
             let mut l = IdList::<M>::default();
             let u = &Universe::new();
-            l.flush(u, 0);
+            l.flush(u);
             fn r<R>(r: Result<R, R>) -> R {
                 match r {
                     Ok(r) => r,
@@ -1540,20 +1154,22 @@ mod test_run_list {
             }
             println!("\npush");
             let a = r(l.recycle_id_no_event());
-            { l.len(); l.flush(u, 0); l.len(); }
+            { l.len(); l.flush(u); l.len(); }
 
-            println!("\ndelete");
+            println!("{:?}", l);
+            println!("\ndelete 1");
             l.delete(a);
-            { l.len(); l.flush(u, 0); l.len(); }
+            println!("{:?}", l);
+            { l.len(); l.flush(u); l.len(); }
 
             println!("\nresurect");
             let a2 = r(l.recycle_id_no_event());
-            { l.len(); l.flush(u, 0); l.len(); }
+            { l.len(); l.flush(u); l.len(); }
             assert_eq!(a, a2);
 
-            println!("\ndelete");
+            println!("\ndelete 2");
             l.delete(a2);
-            { l.len(); l.flush(u, 0); l.len(); }
+            { l.len(); l.flush(u); l.len(); }
         }
     }
 
@@ -1564,141 +1180,6 @@ mod test_run_list {
         l.pop();
         l.push(Id(0));
         l.pop();
-    }
-
-    #[test]
-    fn recycling1() {
-        let universe = Universe::new();
-        let mut ids = IdList::<M>::default();
-        unsafe {
-            let _made = ids.recycle_ids_contiguous_no_event(108);
-            dbg!(&ids);
-            ids.flush(&universe, 0);
-            for id in ids.removing() {
-                id.remove();
-            }
-            dbg!(&ids);
-            ids.flush(&universe, 0);
-            dbg!(&ids);
-            let recycle = ids.recycle_ids_no_event(45);
-            dbg!(&recycle);
-            assert_eq!(recycle.replace.len(), 45);
-        }
-    }
-
-    #[test]
-    fn recycling2() {
-        let check = |a, b, n| {
-            let mut ids = IdList {
-                free: {
-                    let mut free = RunList {
-                        len: 0,
-                        data: [
-                            (a, b),
-                        ].iter().map(|&(a, b)| (Id::<M>::new(a), Id::<M>::new(b))).collect(),
-                    };
-                    free.len = free.iter().count();
-                    free
-                },
-                pushing: Default::default(),
-                deleting: Default::default(),
-                outer_capacity: 100,
-            };
-            let recycle = unsafe { ids.recycle_ids_no_event(n) };
-            assert_eq!(n, recycle.count(), "a = {} b = {} n = {}", a, b, n);
-        };
-        for a in 0..=10 {
-            for b in 0..=10 {
-                for n in 0..=10 {
-                    check(a, b, n)
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn recycling3() {
-        let ids = IdList {
-            free: {
-                let mut free = RunList {
-                    len: 0,
-                    data: [
-                        (1, 3),
-                        (13, 15),
-                        (23, 21),
-                        (27, 25),
-                        (43, 64),
-                        (70, 76),
-                    ].iter().map(|&(a, b)| (Id::<M>::new(a), Id::<M>::new(b))).collect(),
-                };
-                free.len = free.iter().count();
-                free
-            },
-            pushing: Default::default(),
-            deleting: Default::default(),
-            outer_capacity: 100,
-        };
-        dbg!(&ids);
-        for n in 0..ids.len() * 2 {
-            let mut ids = ids.clone();
-            let recycle = unsafe { ids.recycle_ids_no_event(n) };
-            let actual = recycle.count();
-            if n != actual {
-                dbg!(&recycle);
-
-                assert_eq!(n, actual);
-            }
-        }
-    }
-
-    #[test]
-    fn overflow() {
-        let id = |n| Id::<M>::from_usize(n);
-        let ids = IdList {
-            free: {
-                RunList {
-                    len: 126,
-                    data: [
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(1)..=id(4),
-                        id(6)..=id(7),
-                        id(6)..=id(7),
-                        id(6)..=id(7),
-                        id(6)..=id(7),
-                        id(6)..=id(7),
-                        id(6)..=id(7),
-                        id(6)..=id(7),
-                        id(6)..=id(7),
-                        id(13)..=id(16),
-                        id(13)..=id(16),
-                        id(13)..=id(16),
-                        id(13)..=id(16),
-                        id(13)..=id(16),
-                        id(13)..=id(16),
-                        id(20)..=id(22),
-                        id(20)..=id(22),
-                        id(20)..=id(22),
-                        id(20)..=id(22),
-                        id(25)..=id(27),
-                        id(25)..=id(27),
-                        id(30)..=id(34),
-                        id(98)..=id(120),
-                    ].iter().map(|run| (*run.start(), *run.end())).collect(),
-                }
-            },
-            pushing: Default::default(),
-            deleting: Default::default(),
-            outer_capacity: 121,
-        };
-        assert_eq!(0, ids.len());
     }
 }
 

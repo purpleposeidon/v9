@@ -17,7 +17,7 @@ fn track_edit() {
     let mut universe = Universe::new();
     self::dudes::Marker::register(&mut universe);
     self::BOMB_PRIMED::register(&mut universe);
-    universe.add_tracker_with_ref_arg::<_, _, Edited<self::dudes::Marker, u64>>(|ev: KernelArg<&Edited<self::dudes::Marker, u64>>, bomb: &mut BOMB_PRIMED| {
+    universe.add_tracker_with_ref_arg::<_, _, Edit<self::dudes::Marker, u64>>(|ev: KernelArg<&Edit<self::dudes::Marker, u64>>, bomb: &mut BOMB_PRIMED| {
         println!("Tracking our dudes");
         for (_id, new) in &ev.new {
             assert_eq!(*new, 100);
@@ -50,7 +50,7 @@ fn track_removal() {
     let mut universe = Universe::new();
     self::dudes::Marker::register(&mut universe);
     self::BOMB_PRIMED::register(&mut universe);
-    universe.add_tracker_with_ref_arg::<_, _, Deleted<self::dudes::Marker>>(|_ev: KernelArg<&Deleted<self::dudes::Marker>>, bomb: &mut BOMB_PRIMED| {
+    universe.add_tracker_with_ref_arg::<_, _, Delete<self::dudes::Marker, lifestage::LOGICAL>>(|_ev: KernelArg<&Delete<self::dudes::Marker, lifestage::LOGICAL>>, bomb: &mut BOMB_PRIMED| {
         assert!(**bomb, "whack.");
         println!("dude. he died. defusing the bomb. for us. dude had a lot of dudeitude, dude.");
         **bomb = false;

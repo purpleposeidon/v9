@@ -47,17 +47,17 @@ fn log1() {
     {
         recycle_ids_contiguous!(6, Recycle { replace: [](len=0), extend: 6, extension: [0..6] });
         // IdList { free: [](len=0), pushing: [](len=0), deleting: SyncRef { val: RefCell { value: [](len=0) } }, outer_capacity: 6 }
-        ids.flush(&u, 0);
+        ids.flush(&u);
         // IdList { free: [](len=0), pushing: [](len=0), deleting: SyncRef { val: RefCell { value: [](len=0) } }, outer_capacity: 6 }
 
         remove!([0]..=[5]);
         // IdList { free: [](len=0), pushing: [](len=0), deleting: SyncRef { val: RefCell { value: [[0]..=[5]](len=6) } }, outer_capacity: 6 }
-        ids.flush(&u, 0);
+        ids.flush(&u);
         // IdList { free: [[0]..=[5]](len=6), pushing: [](len=0), deleting: SyncRef { val: RefCell { value: [](len=0) } }, outer_capacity: 6 }
 
         recycle_ids!           (3, Recycle { replace: [[0]..=[2]](len=3), extend: 0, extension: [0..0] });
     }
-    ids.flush(&u, 0);
+    ids.flush(&u);
 }
 
 #[test]
@@ -68,10 +68,10 @@ fn fuzz() {
 
     let mut runs = vec![];
     for _ in 0..100 {
-        let n = rng.gen_range(1, 5usize);
+        let n = rng.gen_range(1..5usize);
         if rng.gen() {
             for _ in 0..n {
-                let n = rng.gen_range(1, 10usize);
+                let n = rng.gen_range(1..10usize);
                 let recycle = if rng.gen() {
                     let r = unsafe { ids.recycle_ids_contiguous_no_event(n) };
                     println!("recycle_ids_contiguous!({}, {:?});", n, r);
@@ -86,21 +86,22 @@ fn fuzz() {
                 }
                 if !recycle.extension.is_empty() {
                     let run = recycle.extension.start ..= recycle.extension.end.step(-1);
-                    runs.push(run);
+                    runs.push(run.into());
                 }
             }
         } else {
             for _ in 0..n {
                 if runs.is_empty() { break; }
-                let run = rng.gen_range(0, runs.len());
-                let run = runs.remove(run);
+                let run = rng.gen_range(0..=runs.len()-1);
+                let run: IdRange::<Id<M>> = runs.remove(run);
                 println!("remove!({:?});", run);
+                let run: std::ops::RangeInclusive<Id<M>> = run.into();
                 ids.delete_extend_ranges(Some(run).into_iter());
             }
         }
         println!("// {:?}", ids);
-        println!("ids.flush(&u, 0);");
-        ids.flush(&u, 0);
+        println!("ids.flush(&u, false, false);");
+        ids.flush(&u);
         println!("// {:?}\n", ids);
     }
 }

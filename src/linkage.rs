@@ -93,8 +93,8 @@ impl Universe {
             ColumnIndex::<M, T>::default(),
         );
         // Next we add handlers for each event:
-        self.add_tracker_with_ref_arg::<_, _, Pushed<M>>(
-            |ev: KernelArg<&Pushed<M>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
+        self.add_tracker_with_ref_arg::<_, _, Push<M, lifestage::MEMORY,>>(
+            |ev: KernelArg<&Push<M, lifestage::MEMORY>>, index: &mut ColumnIndex<M, T>, local: ReadColumn<M, T>| {
                 // 2. Insertion
                 // i = col.push(new)
                 // new index[(old, i)]
@@ -104,8 +104,8 @@ impl Universe {
                 }
             },
         );
-        self.add_tracker_with_ref_arg::<_, _, Edited<M, T>>(
-            |ev: KernelArg<&Edited<M, T>>, index: &mut ColumnIndex<M, T>| {
+        self.add_tracker_with_ref_arg::<_, _, Edit<M, T>>(
+            |ev: KernelArg<&Edit<M, T>>, index: &mut ColumnIndex<M, T>| {
                 // 3. Edit
                 // col[i] = new;
                 // index[(old, i)] -> index[(new, i)]
@@ -120,8 +120,8 @@ impl Universe {
                 }
             },
         );
-        self.add_tracker_with_ref_arg::<_, _, Deleted<M>>(
-            |ev: KernelArg<&Deleted<M>>, index: &mut ColumnIndex<M, T>, col: ReadColumn<M, T>| {
+        self.add_tracker_with_ref_arg::<_, _, Delete<M, lifestage::MEMORY>>(
+            |ev: KernelArg<&Delete<M, lifestage::MEMORY>>, index: &mut ColumnIndex<M, T>, col: ReadColumn<M, T>| {
                 // 4. Delete
                 // del col[i];
                 // del index[(old, i)];
@@ -196,8 +196,8 @@ impl<FM: TableMarker> Id<FM> {
             return;
         }
         universe.add_index::<LM, Self>();
-        universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
-            |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
+        universe.add_tracker_with_ref_arg::<_, _, Delete<FM, lifestage::MEMORY>>(
+            |ev: KernelArg<&Delete<FM, lifestage::MEMORY>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
                 // 6. Use the index to decide which IDs get the axe.
                 // We won't reserve enough space if the local table has multiple references to a
                 // single foreign row.
@@ -265,33 +265,50 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
             universe.add_mut(mkc, MustKeepContiguous::<FM>::default());
         }
         universe.add_index::<LM, Self>();
-        universe.add_tracker_with_ref_arg::<_, _, Deleted<FM>>(
-            |ev: KernelArg<&Deleted<FM>>, list: &mut IdList<LM>, index: &ColumnIndex<LM, Self>| {
-                let mut prev = IdRange::empty();
-                for fid in &ev.ids {
-                    if prev.contains(fid) {
-                        // We've already removed this ID.
-                        continue;
-                    }
-                    let range = {
-                        let ll = Id(LM::RawId::LAST);
-                        let fl = Id(FM::RawId::LAST);
-                        let back = (IdRange::new(fid, fl), ll);
-                        ..back
-                    };
-                    let mut iter = index.map.range(range);
-                    // Option<(&(IdRange<Id<FM>>, Id<LM>), &())>
-                    while let Some(((frange, lid), ())) = iter.next_back() {
-                        if frange.contains(fid) {
-                            prev = *frange;
-                            list.delete(*lid);
-                        } else {
-                            break;
-                        }
+        fn delete_em<FM, LM>(ev_ids: &RunList<FM>, list: &mut IdList<LM>, index: &ColumnIndex<LM, IdRange<'static, Id<FM>>>)
+        where
+            FM: TableMarker,
+            LM: TableMarker,
+        {
+            let mut prev = IdRange::empty();
+            for fid in ev_ids {
+                let fid: Id<FM> = fid.uncheck();
+                if prev.contains(fid) {
+                    // We've already removed this ID.
+                    continue;
+                }
+                let range = {
+                    let fl: Id<FM> = Id(FM::RawId::LAST);
+                    let ll: Id<LM> = Id(LM::RawId::LAST);
+                    let back = (IdRange::new(fid, fl), ll);
+                    ..back
+                };
+                let mut iter = index.map.range(range);
+                // Option<(&(IdRange<Id<FM>>, Id<LM>), &())>
+                while let Some(((frange, lid), ())) = iter.next_back() {
+                    if frange.contains(fid) {
+                        prev = *frange;
+                        list.delete(*lid);
+                    } else {
+                        break;
                     }
                 }
-            },
-        );
+            }
+        }
+        universe.add_tracker_with_ref_arg::<_, _, Delete<FM, lifestage::LOGICAL>>(|
+            ev: KernelArg<&Delete<FM, lifestage::LOGICAL>>,
+            list: &mut IdList<LM>,
+            index: &ColumnIndex<LM, Self>,
+        | {
+            delete_em(&ev.ids, list, index)
+        });
+        universe.add_tracker_with_ref_arg::<_, _, Delete<FM, lifestage::LOAD>>(|
+            ev: KernelArg<&Delete<FM, lifestage::LOAD>>,
+            list: &mut IdList<LM>,
+            index: &ColumnIndex<LM, Self>,
+        | {
+            delete_em(&ev.ids, list, index)
+        });
         // FIXME: 'Moved' is kinda hard. :/
         universe.add_tracker_with_mut_arg::<_, _, Select<FM>>(
             move |mut ev: KernelArg<&mut Select<FM>>, index: &ColumnIndex<LM, Self>, universe: UniverseRef| {

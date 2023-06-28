@@ -266,7 +266,7 @@ impl Kernel {
     ///     .arg_mut(&mut m)
     ///     .run(universe);
     /// ```
-    pub fn with_args<'a>(&'a mut self) -> PushArgs<'a> {
+    pub fn with_args(&mut self) -> PushArgs {
         PushArgs(Some(self))
     }
     pub fn resources(&self) -> &[(Ty, Access)] { &self.buffer.resources }

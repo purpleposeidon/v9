@@ -98,10 +98,10 @@ fn main() {
         |list: &mut warehouses::Ids, mut on_fire: warehouses::edit::on_fire| {
             let mut dousing = true;
             for wid in list.removing() {
-                if on_fire[wid] {
+                if on_fire[wid.id] {
                     if dousing {
                         dousing = false;
-                        on_fire[wid] = false;
+                        on_fire[wid.id] = false;
                     } else {
                         wid.remove();
                     }

@@ -27,7 +27,7 @@ impl<E: 'static + Send + Sync> Tracker<E> {
     }
 }
 impl Universe {
-    pub fn submit_event<E: 'static + Send + Sync>(&self, e: &mut E) {
+    pub fn submit_event<E: AnyDebug + Send + Sync>(&self, e: &mut E) {
         let ty = &Ty::of::<Tracker<E>>();
         let event = unsafe {
             let mut objects = self.objects.write().unwrap();
@@ -36,7 +36,11 @@ impl Universe {
                 let obj: &mut dyn AnyDebug = &mut *locked.contents();
                 obj.downcast_mut::<Tracker<E>>().unwrap()
             } else {
-                panic!("an event should not be created if there are no handlers: {:?}", type_name::<E>());
+                // FIXME: Yeah, idk, it's not great, but also, like, whatever. v9 is now creating
+                // these events regardless of if there's a tracker because for its own events there
+                // are in fact always trackers from IdList.
+                //panic!("an event should not be created if there are no handlers: {:?}", type_name::<E>());
+                return;
             }
         };
         for handler in &mut event.handlers {
@@ -157,6 +161,7 @@ mod test_tracking {
         });
         println!("first kmap");
         universe.kmap(|ships: ships::Read, sailors: sailors::Read| {
+            println!("{:?}", ships.ids());
             println!("\nShips:");
             for id in ships.iter() {
                 let ship = ships.ref_row(id);
@@ -173,17 +178,19 @@ mod test_tracking {
             |ships: &mut ships::Ids, names: ships::read::name, weight: ships::read::weight| {
                 let mut sunk = false;
                 for f in ships.removing() {
-                    if weight[f] == 20 {
-                        println!("The {} is sinking! Oh, the humanity!", names[f]);
+                    if weight[f.id] == 20 {
+                        println!("The {} is sinking! Oh, the humanity!", names[f.id]);
                         f.remove();
                         assert!(!sunk);
                         sunk = true;
                     }
                 }
                 assert!(sunk);
+                println!("\nids: {:?}", ships);
             },
         );
         universe.kmap(|ships: ships::Read, sailors: sailors::Read| {
+            println!("\nids: {:?}", ships.ids());
             println!("\nAll Ships:");
             let mut count = 0;
             let mut no_boaty = true;
@@ -196,7 +203,7 @@ mod test_tracking {
             assert!(no_boaty);
             assert_eq!(count, 3);
             println!("\nSailors:");
-            for id in sailors.iter_all() {
+            for id in sailors.iter() {
                 let sailor = sailors.ref_row(id);
                 println!("{:?} = {:?}", id, sailor);
             }
@@ -214,40 +221,67 @@ mod test_tracking {
     }
 }
 
-// FIXME: Rename to `Push, Edit, Move, Delete` ?
+/// Represents different "lifetimes of data".
+// FIXME: Rather game-specific; deserves a feature.
+pub mod lifestage {
+    /// The values have been added or removed from memory. This is less specific than `Logical`
+    /// and `Load`. It is used for things like indices. Has 'RAII' ordering, so it wraps around the
+    /// outside of `Logical`and `Load` events.
+    #[derive(Debug, Copy, Clone)] pub struct MEMORY;
+    /// An object has been created or destroyed.
+    #[derive(Debug, Copy, Clone)] pub struct LOGICAL;
+    /// This does not represent the actual creation or destruction of an object, but rather simply
+    /// that it has been saved to disk.
+    #[derive(Debug, Copy, Clone)] pub struct LOAD;
+}
+
+/// # Safety
+/// Maintaining a sound/coherent/consistent database requires that there be no foreign key pointing
+/// at a dead row.
+/// A `Push` (or `Delete`) of a `LOGICAL` lifestage must be preceded (or followed) by an
+/// otherwise identical `MEMORY` event, so that indices may update (and so that foreign key deletions
+/// can cascade down.) However, a `LOAD` must maintain consistency through its own means. A lone
+/// `MEMORY` event is of dubious use, and instead must accompany one of the other two.
 #[derive(Debug)]
-pub struct Pushed<M: TableMarker> {
+pub struct Unsafe<T>(T);
+impl<T> Unsafe<T> {
+    pub unsafe fn new(t: T) -> Unsafe<T> { Unsafe(t) }
+}
+
+#[derive(Debug)]
+pub struct Push<M: TableMarker, Lifestage> {
+    pub lifestage: Unsafe<Lifestage>,
     pub ids: RunList<M>,
 }
 #[derive(Debug)]
-pub struct Edited<M: TableMarker, T: AnyDebug> {
+pub struct Edit<M: TableMarker, T: AnyDebug> {
     pub(crate) col: *const Column<M, T>,
     pub new: Vec<(Id<M>, T)>,
     // Or this could be split into
     //    new_ids: RunList<M>,
     //    new_values: Vec<T>,
 }
-unsafe impl<M: TableMarker, T: AnyDebug> Send for Edited<M, T> {}
-unsafe impl<M: TableMarker, T: AnyDebug> Sync for Edited<M, T> {}
-impl<M: TableMarker, T: AnyDebug> Edited<M, T> {
-    pub fn col<'a>(&'a self) -> &'a Column<M, T> {
+unsafe impl<M: TableMarker, T: AnyDebug> Send for Edit<M, T> {}
+unsafe impl<M: TableMarker, T: AnyDebug> Sync for Edit<M, T> {}
+impl<M: TableMarker, T: AnyDebug> Edit<M, T> {
+    pub fn col(&self) -> &Column<M, T> {
         unsafe { &*self.col }
     }
 }
 
+#[derive(Debug)]
+pub struct Delete<M: TableMarker, Lifestage> {
+    pub lifestage: Unsafe<Lifestage>,
+    pub ids: RunList<M>,
+}
+
 #[cfg(feature = "move_event")]
 #[derive(Debug)]
-pub struct Moved<M: TableMarker> {
+pub struct Move<M: TableMarker> {
     /// (old, new)
     pub ids: Vec<(Id<M>, Id<M>)>,
 }
-
 /// Requires `move_event` feature.
 #[cfg(not(feature = "move_event"))]
 #[derive(Debug)]
-pub enum Moved {}
-
-#[derive(Debug)]
-pub struct Deleted<M: TableMarker> {
-    pub ids: RunList<M>,
-}
+pub enum Move {}

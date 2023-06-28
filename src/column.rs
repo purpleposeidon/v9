@@ -72,7 +72,7 @@ where
     type Output = T;
     fn index(&self, i: I) -> &T {
         unsafe {
-            let i = i.check_from_len(PhantomData, self.col.data.len());
+            let i = i.check_from_capacity(PhantomData, self.col.data.len());
             self.col.data.get_unchecked(i.to_usize())
         }
     }
@@ -84,7 +84,7 @@ where
     type Output = T;
     fn index(&self, i: I) -> &T {
         unsafe {
-            let i = i.check_from_len(PhantomData, self.col.data.len());
+            let i = i.check_from_capacity(PhantomData, self.col.data.len());
             self.col.data.get_unchecked(i.to_usize())
         }
     }
@@ -95,7 +95,7 @@ where
 {
     fn index_mut(&mut self, i: I) -> &mut T {
         unsafe {
-            let i = i.check_from_len(PhantomData, self.col.data.len());
+            let i = i.check_from_capacity(PhantomData, self.col.data.len());
             self.col.data.get_unchecked_mut(i.to_usize())
         }
     }
@@ -108,7 +108,7 @@ where
     type Output = T;
     fn index(&self, i: I) -> &T {
         unsafe {
-            let i = i.check_from_len(PhantomData, self.col.data.len());
+            let i = i.check_from_capacity(PhantomData, self.col.data.len());
             if let Some((prev, dude)) = self.log.last() {
                 match i.uncheck().cmp(prev) {
                     Ordering::Less => disordered_column_access(),
@@ -128,7 +128,7 @@ where
 {
     fn index_mut(&mut self, i: I) -> &mut T {
         unsafe {
-            let i = i.check_from_len(PhantomData, self.col.data.len());
+            let i = i.check_from_capacity(PhantomData, self.col.data.len());
             let i = i.uncheck();
             if !self.must_log {
                 return self.col.data.get_unchecked_mut(i.to_usize());
@@ -159,7 +159,7 @@ where
     type Output = T;
     fn index(&self, i: I) -> &T {
         unsafe {
-            let i = i.check_from_len(PhantomData, self.col.data.len());
+            let i = i.check_from_capacity(PhantomData, self.col.data.len());
             self.col.data.get_unchecked(i.to_usize())
         }
     }
@@ -204,7 +204,7 @@ where
     const ACC: Access = Access::Write;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self {
         let obj: &'static mut dyn AnyDebug = rez.take_mut();
-        assert!(!universe.is_tracked::<Edited<M, T>>(), "FastEditColumn used on a tracked column");
+        assert!(!universe.is_tracked::<Edit<M, T>>(), "FastEditColumn used on a tracked column");
         FastEditColumn {
             col: obj.downcast_mut().unwrap(),
         }
@@ -229,7 +229,7 @@ where
     type Owned = EditColumnOwned<'a, M, T>;
     unsafe fn extract(universe: &Universe, rez: &mut Rez) -> Self::Owned {
         let col: &mut Column<M, T> = rez.take_mut_downcast();
-        let must_log = universe.is_tracked::<Edited<M, T>>();
+        let must_log = universe.is_tracked::<Edit<M, T>>();
         let log = vec![];
         EditColumnOwned { col, must_log, log }
     }
@@ -264,7 +264,7 @@ where
         }
         let log = universe.with(move |col: &Column<M, T>| {
             let col = col as *const _;
-            let mut ev = Edited { col, new: self.log };
+            let mut ev = Edit { col, new: self.log };
             universe.submit_event(&mut ev);
             ev.new
         });

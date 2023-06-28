@@ -18,10 +18,12 @@ ezty = "0.1"
 smallvec = { version = "0.6", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"], optional = true }
 bincode = { git = "https://github.com/bincode-org/bincode", rev = "6c219e9214bda2bdce1327db6ed7f66d2fa4bf02", default-features = false, features = ["std", "alloc", "derive"], optional = true }
+runlist = { path = "./runlist/" }
 
 
 [dev-dependencies]
-rand = "0.7"
+rand = "0.8.5"
+rand_chacha = "0.3"
 serde_json = "1.0"
 
 [features]

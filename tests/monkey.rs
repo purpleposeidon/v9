@@ -1,5 +1,5 @@
 use v9::prelude::*;
-use v9::event::Pushed;
+use v9::event::{Push, lifestage};
 use v9::kernel::KernelArg;
 use v9::prelude_lib::Ty;
 
@@ -17,8 +17,8 @@ fn patch() {
         Ty::of::<WeightCol>(),
         WeightCol::new(),
     );
-    universe.add_tracker_with_ref_arg::<_, _, Pushed<cheeses::Marker>>(|
-        ev: KernelArg<&Pushed<cheeses::Marker>>,
+    universe.add_tracker_with_ref_arg::<_, _, Push<cheeses::Marker, lifestage::LOGICAL>>(|
+        ev: KernelArg<&Push<cheeses::Marker, lifestage::LOGICAL>>,
         mut weights: v9::column::WriteColumn<cheeses::Marker, f32>, // direct access
     | {
         unsafe {

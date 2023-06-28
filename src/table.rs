@@ -9,7 +9,7 @@ pub struct TableHeader {
     pub ids: Ty,
     pub columns: Vec<ColumnHeader>,
 }
-pub trait TableMarker: 'static + Default + Copy + Send + Sync + Register + fmt::Debug {
+pub trait TableMarker: 'static + Default + Copy + Clone + Send + Sync + Register + fmt::Debug {
     const NAME: Name;
     type RawId: Raw;
     fn header() -> TableHeader;
@@ -106,10 +106,10 @@ pub struct ColumnHeader {
 ///     universe.kmap(|list: &mut warehouses::Ids, mut on_fire: warehouses::edit::on_fire| {
 ///         let mut have_extinguisher = true;
 ///         for wid in list.removing() {
-///             if on_fire[wid] {
+///             if on_fire[wid.id] {
 ///                 if have_extinguisher {
 ///                     have_extinguisher = false;
-///                     on_fire[wid] = false;
+///                     on_fire[wid.id] = false;
 ///                 } else {
 ///                     wid.remove();
 ///                 }
@@ -275,9 +275,6 @@ macro_rules! decl_table {
                             $($cn: &self.$cn[i],)*
                         }
                     }
-                    pub fn iter_all(&self) -> UncheckedIdRange<Marker> {
-                        IdRange::to(Id::from_usize(self.__v9__iter.outer_capacity()))
-                    }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         self.__v9__iter.iter()
                     }
@@ -327,7 +324,7 @@ macro_rules! decl_table {
                         }
                     }
                     pub fn push(&mut self, row: Row) -> Id {
-                        let id = unsafe {
+                        unsafe {
                             match self.__v9__iter.recycle_id_no_event() {
                                 Ok(id) => {
                                     self.set_immediate(id.to_usize(), row);
@@ -339,9 +336,7 @@ macro_rules! decl_table {
                                     id
                                 },
                             }
-                        };
-                        self.__v9__iter.event_push(id);
-                        id
+                        }
                     }
                     pub unsafe fn push_immediate(&mut self, row: Row) {
                         $(self.$cn.col.get_mut().data_mut().push(row.$cn);)*
@@ -368,8 +363,6 @@ macro_rules! decl_table {
                             unsafe { self.push_immediate(row); }
                         }
                         assert!(rows.next().is_none());
-                        self.ids_mut().event_push_run(recycle.extension);
-                        self.ids_mut().validate();
                         recycle.extension
                     }
                     pub fn borrow(&self) -> Read {
@@ -381,9 +374,6 @@ macro_rules! decl_table {
                     pub fn remove(&mut self, i: impl Into<Id>) {
                         // FIXME: This probably needs more testing.
                         self.__v9__iter.delete(i.into());
-                    }
-                    pub fn iter_all(&self) -> IdRange<Id> {
-                        IdRange::to(Id::from_usize(self.__v9__iter.outer_capacity()))
                     }
                     pub fn iter(&self) -> CheckedIter<Marker> {
                         self.__v9__iter.iter()
@@ -517,12 +507,8 @@ macro_rules! decl_table {
                 pub use self::edit::__Edit as Edit;
                 /// Write an individual column.
                 pub mod write {
-                    // FIXME: Why would you want this!? You could make the columns uneven!
-                    // Maybe we should only make public the context?
-                    // A possible use is that you might be deserializing from a SOA.
-                    // However that's probably the only usage.
-                    // If we abandon the "most stuff is public" policy, this'd be a good candidate for hiding.
-                    $(pub type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
+                    // FIXME: Can't use a type alias<T> CUZ...
+                    $(type $cn<'a> = $crate::prelude_macro::WriteColumn<'a, super::super::in_v9::Marker, super::types::$cn>;)*
                     #[doc(hidden)]
                     pub type __V9__Iter<'a> = &'a mut super::super::in_v9::Ids;
                     $crate::decl_context! {

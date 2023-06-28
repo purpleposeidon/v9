@@ -35,11 +35,15 @@ fn test() {
     universe.kmap(|mut chars: char_list::Write, mut names: names::Write| {
         let data = &["bob", "fred", "steve"];
         for d in data {
-            let start = char_list::Id::from_usize(chars.len());
-            let mut end = start;
+            let mut start = None;
+            let mut end = char_list::FIRST;
             for c in d.chars() {
                 end = chars.push(char_list::Row { c });
+                if start.is_none() {
+                    start = Some(end);
+                }
             }
+            let start = start.unwrap();
             names.push(names::Row { slice: (start..end.next()).into() });
         }
     });
@@ -49,6 +53,7 @@ fn test() {
         universe.kmap(|chars: &mut char_list::Ids| {
             chars.removing().next().unwrap().remove();
         });
+        println!("And now we have...");
         universe.run(dump);
         universe.kmap(|chars: char_list::Read, names: names::Read| {
             let mut out = String::new();
