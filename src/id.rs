@@ -251,15 +251,6 @@ pub struct IdRange<'a, I: Check> {
     pub start: I,
     pub end: I,
 }
-/*impl<M: TableMarker + Check<M = M>> From<IdRange<'_, M>> for runlist::Run<M::RawId> {
-    fn from(idr: IdRange<M>) -> runlist::Run<M::RawId> {
-        let start: M::RawId = idr.start.to_raw();
-        let end: M::RawId = idr.end.to_raw();
-        let range: Range<M::RawId> = start..end;
-        let ret: runlist::Run<M::RawId> = range.try_into().unwrap();
-        ret
-    }
-}*/
 impl<'a, M: TableMarker> Default for IdRange<'a, Id<M>> {
     fn default() -> Self {
         IdRange {
@@ -429,7 +420,6 @@ impl<M: TableMarker> From<RangeInclusive<Id<M>>> for UncheckedIdRange<M> {
 #[repr(C)]
 pub struct IdList<M: TableMarker> {
     inner: runlist::IdList<M::RawId>,
-    //rm_id_live: bool,
     event_commitment: EventCommitment,
     load_events: bool,
 }
@@ -513,65 +503,20 @@ impl<M: TableMarker> IdList<M> {
             i.start().to_raw()..=i.end().to_raw()
         }));
     }
-    pub fn removing<'this, 'iter>(&'this mut self) -> ListRemoving2<'iter, M>
+    pub fn removing<'this, 'iter>(&'this mut self) -> ListRemoving<'iter, M>
     where
         'this: 'iter,
     {
         self.event_commitment.half_commit(false);
-        //assert!(!self.rm_id_live);
         // We need to return a self-borrowing iterator, lol? Uh-oh.
         let (iter, deleter) = self.inner.iter_singles_deleting();
-        ListRemoving2 {
+        ListRemoving {
             _m: PhantomData,
-            //rm_id_live: &mut self.rm_id_live,
             iter,
             deleter,
             event_commitment: &mut self.event_commitment as *mut _,
         }
     }
-    /*#[inline]
-    pub fn removing(&mut self) -> ListRemoving<'static, M> {
-        self.event_commitment.half_commit(false);
-        // NB: This is unsound. This is done intentionally.
-        // It makes usage nicer. Don't do weird things.
-        // See `removing2()` for the sound version. It's a pain.
-        // The crux of the issue is:
-        //    Checkable
-        //          Wants the Id and the Column to share a lifetime
-        //    vs RmId
-        //          Stores a reference to self.free
-        //    vs impl IndexMut for Column
-        //          Entangles the lifetime of the indexed value with &mut self
-        // FIXME: Could we sneak an abort in somehow?
-        unsafe {
-            ListRemoving {
-                checked: {
-                    // Passing in self.len
-                    CheckedIter::new(self.outer_capacity, mem::transmute(&self.free))
-                },
-                deleting: mem::transmute(&self.deleting),
-            }
-        }
-        // (Also it'd be nice to just transmute from removing2(),
-        // but I get some BS error about varying size.)
-        // What if we did
-        //    fn removing<'a>(&mut self, &'a ()) -> ListRemoving<'a, M>
-        // Maybe we could pass in &mut true, and it set it to false?
-    }
-    #[doc(hidden)]
-    pub fn removing2<'a, 'b>(&'a mut self) -> ListRemoving<'b, M>
-    where
-        'a: 'b,
-    {
-        self.event_commitment.half_commit(false);
-        ListRemoving {
-            checked: unsafe {
-                // Passing in self.len
-                CheckedIter::new(self.outer_capacity, &self.free)
-            },
-            deleting: &self.deleting,
-        }
-    }*/
     /// Creates a new Id, or returns a previously deleted Id.
     ///
     /// # Safety
@@ -617,17 +562,6 @@ impl<M: TableMarker> IdList<M> {
             },
         }
     }
-    /*
-    /// The next Id that will be used for the next call to push. Be aware that calling this
-    /// multiple times will return the same ID.
-    pub fn next(&self) -> Id<M> {
-        // Idea: What if there was a 'future IDs' iterator?
-        self.free.last()
-            .unwrap_or_else(|| {
-                Id::from_usize(self.outer_capacity)
-            })
-    }
-    */
     pub fn check<'a, 'b>(&'a self, i: impl Check<M=M> + 'b) -> CheckedId<'a, M> {
         unsafe {
             i.check_from_capacity(
@@ -636,32 +570,19 @@ impl<M: TableMarker> IdList<M> {
             )
         }
     }
-    /*pub fn event_push(&mut self, id: Id<M>) {
-        self.pushing.push(id);
-    }
-    pub fn event_push_run(&mut self, run: UncheckedIdRange<M>) {
-        if run.is_empty() { return; }
-        let start = run.start;
-        let end = run.end.step(-1);
-        self.event_push_run_inclusive(start..=end);
-    }
-    pub fn event_push_run_inclusive(&mut self, run: RangeInclusive<Id<M>>) {
-        assert!(run.start() <= run.end());
-        self.pushing.push_run(run);
-    }*/
 }
 impl<'a, M: TableMarker> IntoIterator for &'a IdList<M> {
     type Item = CheckedId<'a, M>;
     type IntoIter = CheckedIter<'a, M>;
     fn into_iter(self) -> Self::IntoIter { self.iter() }
 }
-pub struct ListRemoving2<'a, M: TableMarker> {
+pub struct ListRemoving<'a, M: TableMarker> {
     _m: PhantomData<&'a mut IdList<M>>,
     iter: runlist::IterIdsSingles<'a, M::RawId>,
     deleter: runlist::Deleter<'a, M::RawId>,
     event_commitment: *mut EventCommitment,
 }
-impl<'a, M: TableMarker> Iterator for ListRemoving2<'a, M> {
+impl<'a, M: TableMarker> Iterator for ListRemoving<'a, M> {
     type Item = RmId<'a, M>;
     fn next(&mut self) -> Option<Self::Item> {
         let deleter = &mut self.deleter as *mut _;
@@ -755,12 +676,6 @@ impl<M: TableMarker> Recycle<M> {
     pub fn count(&self) -> usize {
         self.extend + self.replace.len()
     }
-    /*pub fn add_push_events(&self, ids: &mut IdList<M>) {
-        for run in self.replace.iter_runs() {
-            ids.event_push_run_inclusive(run);
-        }
-        ids.event_push_run(self.extension);
-    }*/
 }
 
 /// An `Id` with a method for removing the row.
@@ -801,18 +716,6 @@ impl<'a, M: TableMarker> Ord for RmId<'a, M> {
         self.id.cmp(&other.id)
     }
 }
-/*unsafe impl<'a, M: TableMarker> Check for RmId<'a, M> {
-    type M = M;
-    fn to_usize(&self) -> usize {
-        self.id.to_usize()
-    }
-    unsafe fn from_usize(_i: usize) -> Self { unimplemented!() }
-    fn to_raw(&self) -> <Self::M as TableMarker>::RawId { self.id.0 }
-    unsafe fn step(mut self, d: i8) -> Self {
-        self.id = self.id.step(d);
-        self
-    }
-}*/
 
 #[derive(Debug, Clone)]
 pub struct CheckedIter<'a, M: TableMarker> {
