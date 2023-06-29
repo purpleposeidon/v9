@@ -1,3 +1,8 @@
+# Unsorted
+EditCol can be made to not worry about order in this way:
+    given your column w/ N elements, have a 0-initialized array.
+If you edit something, check out that array. Change 0 to new.push((orig.clone(), i))
+
 # Todos: Written Out Again
 $table::name should be static, not const
 can probably remove $table::swap, $table::clear
@@ -44,6 +49,8 @@ s/remove/delete. The distinction isn't helpful.
 s/is_tracked/is_tracking. Or just 'tracked' or 'tracking'?
 Running a Kernel is far too much work for the computer.
 a way to allocate a bunch of IDs that are compatible with another RunList, so that you can serialize contiguous stuff safely
+
+There's a function that calls panic!() twice for String and &str, like from catching? That could be pulled out to reduce codegen.
 
 # Consistency/Ordering Issue
 We acquire a bunch of locks.
@@ -165,3 +172,12 @@ no-default-features = true
 default-target = "x86_64-unknown-linux-gnu"
 rustc-args = [ "--example-rustc-arg" ]
 rustdoc-args = [ "--example-rustdoc-arg" ]
+
+
+if universe.has<Foo>() {
+    thing();
+]
+Is sorta-bad. It should be:
+    universe.given<Foo>(|universe| ());
+Another option would be to track has() calls and panic if the answer would be changed.
+Tho if we do the track idea, then we'd want a has_immediately(ty).
