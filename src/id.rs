@@ -861,25 +861,30 @@ mod bincode_impls {
     }
     impl<M: TableMarker> Encode for RunList<M> {
         fn encode<E: Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
-            self.len.encode(encoder)?;
-            let pairs = self.data.len();
+            self.inner.len().encode(encoder)?;
+            let pairs = self.inner.data().len();
             pairs.encode(encoder)?;
-            for &pair in &self.data {
-                pair.encode(encoder)?;
+            for pair in self.inner.data() {
+                pair.data().encode(encoder)?;
             }
             Ok(())
         }
     }
     impl<M: TableMarker> Decode for RunList<M> {
         fn decode<D: Decoder>(decoder: &mut D) -> Result<Self, DecodeError> {
-            let len = usize::decode(decoder)?;
+            let _len = usize::decode(decoder)?;
             let pairs: usize = usize::decode(decoder)?;
-            type P<M> = (Id<M>, Id<M>);
-            let mut data = smallvec::SmallVec::<[P::<M>; 2]>::with_capacity(pairs);
+            type Data<M> = [<M as TableMarker>::RawId; 2];
+            let mut data = Vec::<runlist::Run<M::RawId>>::with_capacity(pairs);
             for _ in 0..pairs {
-                data.push(P::<M>::decode(decoder)?);
+                let run = Data::<M>::decode(decoder)?;
+                let run = runlist::Run::<M::RawId>::from_data(run);
+                data.push(run);
             }
-            Ok(RunList { len, data })
+            match runlist::RunList::from_data(data) {
+                Ok(inner) => Ok(RunList { inner }),
+                Err(e) => Err(DecodeError::OtherString(e)),
+            }
         }
     }
 }
