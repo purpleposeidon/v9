@@ -31,7 +31,7 @@ impl<M: TableMarker, T: AnyDebug + Ord + Clone> ColumnIndex<M, T> {
     pub fn full_range(t: T) -> StdRange<(T, Id<M>)> {
         (t.clone(), Id(M::RawId::ZERO))..(t, Id(M::RawId::LAST))
     }
-    pub fn find<'a>(&'a self, t: T) -> impl DoubleEndedIterator<Item=Id<M>> + 'a {
+    pub fn find<'a>(&'a self, t: T) -> impl DoubleEndedIterator<Item=Id<M>> + Clone + fmt::Debug + 'a {
         self.map
             .range(Self::full_range(t))
             .map(|((_, i), _)| *i)
@@ -40,7 +40,7 @@ impl<M: TableMarker, T: AnyDebug + Ord + Clone> ColumnIndex<M, T> {
     pub fn between(low: T, high: T) -> StdRange<(T, Id<M>)> {
         (low, Id(M::RawId::ZERO))..(high, Id(M::RawId::LAST))
     }
-    pub fn range<'a>(&'a self, low: T, high: T) -> impl DoubleEndedIterator<Item=Id<M>> + 'a {
+    pub fn range<'a>(&'a self, low: T, high: T) -> impl DoubleEndedIterator<Item=Id<M>> + Clone + fmt::Debug + 'a {
         self.map
             .range(Self::between(low, high))
             .map(|((_, i), _)| *i)
