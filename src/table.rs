@@ -314,10 +314,16 @@ macro_rules! decl_table {
                     pub fn ids(&self) -> &Ids {
                         self.__v9__iter
                     }
-                    #[inline]
-                    pub fn ids_mut(&mut self) -> &mut Ids {
-                        self.__v9__iter
-                    }
+                    /*
+                    pub fn ids_mut(&mut self) -> &mut Ids { self.__v9__iter } -- This is useless.
+                    You could use this to call:
+                        - removing()
+                        - delete()
+                        - recycle_*()
+                    removing() & delete() are used like "I want to edit this thing, but also maybe I want to remove stuff."
+                    But that's unworkable (unless we split to Write<'data, 'ids>, which would murder `context!`)
+                    recycle_* is only used indirectly, from the table's regular push_* methods.
+                    */
                     pub fn reserve(&mut self, n: usize) {
                         unsafe {
                             $(self.$cn.col.get_mut().data_mut().reserve(n);)*
@@ -338,10 +344,10 @@ macro_rules! decl_table {
                             }
                         }
                     }
-                    pub unsafe fn push_immediate(&mut self, row: Row) {
+                    unsafe fn push_immediate(&mut self, row: Row) {
                         $(self.$cn.col.get_mut().data_mut().push(row.$cn);)*
                     }
-                    pub unsafe fn set_immediate(&mut self, i: usize, row: Row) {
+                    unsafe fn set_immediate(&mut self, i: usize, row: Row) {
                         $(*self.$cn.col.get_mut().data_mut().get_unchecked_mut(i) = row.$cn;)*
                     }
                     pub fn push_contiguous<IT>(&mut self, rows: IT) -> Range
@@ -349,10 +355,10 @@ macro_rules! decl_table {
                         IT: IntoIterator<Item=Row>,
                         <IT as IntoIterator>::IntoIter: ExactSizeIterator,
                     {
-                        self.ids_mut().validate();
+                        self.__v9__iter.validate();
                         let mut rows = rows.into_iter();
                         let n = rows.len();
-                        let recycle = unsafe { self.ids_mut().recycle_ids_contiguous_no_event(n) };
+                        let recycle = unsafe { self.__v9__iter.recycle_ids_contiguous_no_event(n) };
                         for id in recycle.replace.iter() {
                             let row = rows.next().expect($crate::util::die::BAD_ITER_LEN);
                             unsafe { self.set_immediate(id.to_usize(), row); }
