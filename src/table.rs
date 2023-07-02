@@ -314,16 +314,20 @@ macro_rules! decl_table {
                     pub fn ids(&self) -> &Ids {
                         self.__v9__iter
                     }
-                    /*
-                    pub fn ids_mut(&mut self) -> &mut Ids { self.__v9__iter } -- This is useless.
-                    You could use this to call:
-                        - removing()
-                        - delete()
-                        - recycle_*()
-                    removing() & delete() are used like "I want to edit this thing, but also maybe I want to remove stuff."
-                    But that's unworkable (unless we split to Write<'data, 'ids>, which would murder `context!`)
-                    recycle_* is only used indirectly, from the table's regular push_* methods.
-                    */
+                    #[inline]
+                    pub fn ids_mut(&mut self) -> &mut Ids {
+                        // This is somewhat useless.
+                        // You could use this to call:
+                        //     - removing()
+                        //     - delete()
+                        //     - recycle_*()
+                        // removing() & delete() are used like "I want to edit this thing, but also maybe I want to remove stuff."
+                        // But that's unworkable (unless we split to Write<'data, 'ids>, which would murder `context!`)
+                        // recycle_* is only used indirectly, from the table's regular push_* methods.
+                        // I'm keeping it for this reason: you can iterate over the IDs, buffer
+                        // what you want to kill, and then kill them later.
+                        self.__v9__iter
+                    }
                     pub fn reserve(&mut self, n: usize) {
                         unsafe {
                             $(self.$cn.col.get_mut().data_mut().reserve(n);)*
