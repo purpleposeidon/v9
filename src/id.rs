@@ -804,6 +804,7 @@ impl<M: TableMarker> RunList<M> {
     #[inline] pub fn iter(&self) -> RunListIterSingles<M> { RunListIterSingles(self.inner.iter_singles()) }
     #[inline] pub fn contains(&self, id: Id<M>) -> bool { self.inner.contains(id.to_raw()) }
     #[inline] pub fn iter_runs(&self) -> RunListIterRanges<M> { RunListIterRanges(self.inner.iter_ranges()) }
+    #[inline] pub fn iter_runs_inclusive(&self) -> RunListIterRangesInclusive<M> { RunListIterRangesInclusive(self.inner.iter_ranges()) }
     pub fn extend(&mut self, iter: impl Iterator<Item=Id<M>>) {
         // Reserve isn't possible.
         for id in iter {
@@ -848,6 +849,21 @@ impl<'a, M: TableMarker> Iterator for RunListIterRanges<'a, M> {
     }
     #[inline] fn size_hint(&self) -> (usize, Option<usize>) { self.0.size_hint() }
 }
+#[derive(Debug, Clone)]
+pub struct RunListIterRangesInclusive<'a, M: TableMarker>(runlist::IterRanges<'a, M::RawId>);
+impl<'a, M: TableMarker> Iterator for RunListIterRangesInclusive<'a, M> {
+    type Item = RangeInclusive<Id<M>>;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0
+            .next()
+            .map(|run: RangeInclusive<M::RawId>| -> RangeInclusive<Id<M>> {
+                Id(*run.start())..=Id(*run.end())
+            })
+    }
+    #[inline] fn size_hint(&self) -> (usize, Option<usize>) { self.0.size_hint() }
+}
+
 
 
 #[cfg(feature = "bincode")]
