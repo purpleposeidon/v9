@@ -425,6 +425,7 @@ pub struct IdList<M: TableMarker> {
 }
 impl<M: TableMarker> IdList<M> {
     pub fn validate(&self) { self.inner.assert().unwrap(); }
+    #[inline] pub fn set_load(&mut self) { self.load_events = true; }
     #[inline] pub fn len(&self) -> usize { self.inner.len() }
     #[inline] pub fn is_empty(&self) -> bool { self.inner.is_empty() }
     #[inline] pub fn outer_capacity(&self) -> usize { M::RawId::to_usize(self.inner.outer_capacity()) }
@@ -516,6 +517,11 @@ impl<M: TableMarker> IdList<M> {
             deleter,
             event_commitment: &mut self.event_commitment as *mut _,
         }
+    }
+    /// What the next call to `recycle_id_no_event()` will return.
+    #[inline]
+    pub fn next_recycle_id(&self) -> Id<M> {
+        Id::<M>(self.inner.next_recycle_id())
     }
     /// Creates a new Id, or returns a previously deleted Id.
     ///
@@ -775,11 +781,12 @@ impl<M: TableMarker> RunList<M> {
     pub fn on(id: Id<M>) -> Self {
         Self { inner: runlist::RunList::on(id.0) }
     }
-    pub fn get_data(&self) -> &[(Id<M>, Id<M>)] {
+    pub fn get_data(&self) -> &[[M::RawId; 2]] {
         let data: &[runlist::Run<M::RawId>] = self.inner.data();
         unsafe { std::mem::transmute(data) }
     }
-    pub fn from_raw_data(len: usize, data: Vec<runlist::Run<M::RawId>>) -> Result<Self, String> {
+    pub fn from_raw_data(len: usize, data: Vec<[M::RawId; 2]>) -> Result<Self, String> {
+        let data = unsafe { std::mem::transmute(data) };
         let inner = runlist::RunList::from_data(data)?;
         let actual = inner.len();
         if actual != len {

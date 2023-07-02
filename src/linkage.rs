@@ -262,7 +262,7 @@ impl<FM: TableMarker> IdRange<'static, Id<FM>> {
         }
         let mkc = Ty::of::<MustKeepContiguous::<FM>>();
         if !universe.has_ty(mkc) {
-            universe.add_mut(mkc, MustKeepContiguous::<FM>::default());
+            universe.add_mut(mkc, ());
         }
         universe.add_index::<LM, Self>();
         fn delete_em<FM, LM>(ev_ids: &RunList<FM>, list: &mut IdList<LM>, index: &ColumnIndex<LM, IdRange<'static, Id<FM>>>)
