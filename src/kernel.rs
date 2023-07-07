@@ -7,6 +7,70 @@ use std::cell::Cell;
 use std::fmt;
 use std::any::Any as StdAny;
 
+fn describe_resources(resources: &[(Ty, Access)]) {
+    if resources.is_empty() {
+        eprintln!("\t\tKernel has no resources");
+    } else {
+        eprintln!("\t\tKernel uses {} resources:", resources.len());
+    }
+    for (ty, access) in resources {
+        let a = match access {
+            Access::Read  => "read  ",
+            Access::Write => "write ",
+        };
+        let mut ty = format!("{:?}", ty);
+        let pretty = &[
+            // Stolen from ezty... hmm.
+            ("alloc::boxed::", "Box"),
+            ("alloc::collections::binary_heap::", "BinaryHeap"),
+            ("alloc::collections::btree::map::", "BTreeMap"),
+            ("alloc::collections::btree::set::", "BTreeSet"),
+            ("alloc::collections::linked_list::", "LinkedList"),
+            ("alloc::collections::vec_deque::", "VecDeque"),
+            ("alloc::sync::", "Arc"),
+            ("alloc::vec::", "Vec"),
+            ("core::cell::", "Cell"),
+            ("core::cell::", "RefCell"),
+            ("core::option::", "Option"),
+            ("core::result::", "Result"),
+            ("std::collections::hash::map::", "HashMap"),
+            ("std::collections::hash::set::", "HashSet"),
+            ("std::sync::rwlock::", "RwLock"),
+            // And more stuff
+            ("v9::column::Column", "Column"),
+            ("::in_v9::", "::"),
+            ("::_v9_property_mod_", ""),
+            ("::PropGeneric<", "<"),
+            ("v9::id::IdList", "IdList"),
+            // Just deal with it, I guess.
+            ("triton::", ""),
+            ("util::tagdb::Tag", "Tag"),
+            ("alloc::string::String", "String"),
+            ("lerp::Lerp", "Lerp"),
+            ("nalgebra::base::dimension::", ""),
+            ("space::rad::Rad", "Rad"),
+            ("nalgebra::base::unit::Unit", "Unit"),
+            ("Unit<nalgebra::geometry::quaternion::Quaternion<f32>>", "Quat"),
+            ("v9::id::", ""),
+            ("v9::column::Column", "Column"),
+            ("::in_v9::", "::"),
+            ("new_units::", ""),
+            ("nalgebra::base::matrix::Matrix<f32, U3, U1, nalgebra::base::array_storage::ArrayStorage<f32, U3, U1>>", "V3"),
+            ("_v9_property_mod_", ""),
+            ("v9::event::", "v9:"),
+            ("v9::linkage::", "v9:"),
+            ("::PropGeneric", "="),
+            ("core::option::Option", "Option"),
+            ("core::result::Result", "Result"),
+            ("triton::behaviors::QuatrexDefinition", "QuatrexDefinition"),
+        ];
+        for (ugly, pretty) in pretty {
+            ty = ty.replace(ugly, pretty);
+        }
+        eprintln!("\t\t\t{} {}", a, ty);
+    }
+}
+
 #[must_use]
 pub struct ResetBuffer<'a> {
     pub(crate) universe: &'a Universe,
@@ -16,9 +80,12 @@ pub struct ResetBuffer<'a> {
 impl Drop for ResetBuffer<'_> {
     fn drop(&mut self) {
         if std::thread::panicking() {
-            if !self.name.is_empty() {
+            if self.name.is_empty() {
+                eprintln!("NOTE: Panic in un-named kernel");
+            } else {
                 eprintln!("NOTE: Panic in kernel {}", self.name);
             }
+            describe_resources(&self.buffer.resources);
             let mut objects = self.universe.objects.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for &(ty, acc) in &self.buffer.resources {
                 if let Some(obj) = objects.get_mut(&ty) {
@@ -31,9 +98,9 @@ impl Drop for ResetBuffer<'_> {
         self.buffer.vals.clear();
     }
 }
-impl ResetBuffer<'_> {
+impl<'a> ResetBuffer<'a> {
     fn done(self) {}
-    pub fn cleanup(&self) {
+    pub fn cleanup(&self) -> PostCleanup {
         // The cleanup closure.
         // See comment in 'fn run' KernelFn impl.
         let mut objects = self.universe.objects.lock().expect("unable to release locks");
@@ -42,6 +109,23 @@ impl ResetBuffer<'_> {
             lock.release(acc);
         }
         self.universe.condvar.notify_all();
+        PostCleanup { name: self.name, buffer: self.buffer }
+    }
+}
+pub struct PostCleanup<'a> {
+    pub name: &'a str,
+    buffer: &'a LockBuffer,
+}
+impl Drop for PostCleanup<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            if self.name.is_empty() {
+                eprintln!("NOTE: Post-cleanup panic in un-named kernel");
+            } else {
+                eprintln!("NOTE: Post-cleanup panic in kernel {}", self.name);
+            }
+            describe_resources(&self.buffer.resources);
+        }
     }
 }
 
@@ -395,7 +479,7 @@ macro_rules! impl_kernel {
                     self($($A),*)
                 };
                 $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, cleanup.universe);)*
-                cleanup.cleanup(); // Releases the locks.
+                let _post_cleanup = cleanup.cleanup(); // Releases the locks.
                 $($A.post_cleanup(cleanup.universe);)*
                 ret
             }
@@ -413,7 +497,7 @@ macro_rules! impl_kernel {
                     self($($A),*)
                 };
                 $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, cleanup.universe);)*
-                cleanup.cleanup(); // Releases the locks.
+                let _post_cleanup = cleanup.cleanup(); // Releases the locks.
                 $($A.post_cleanup(cleanup.universe);)*
                 ret
             }
