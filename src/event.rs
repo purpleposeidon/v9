@@ -29,12 +29,23 @@ impl<E: 'static + Send + Sync> Tracker<E> {
 impl Universe {
     pub fn submit_event<E: AnyDebug + Send + Sync>(&self, e: &mut E) {
         let ty = &Ty::of::<Tracker<E>>();
+        self.submit_event0(ty, &mut |event: &mut dyn AnyDebug| {
+            let event = event.downcast_mut::<Tracker<E>>().unwrap();
+            for handler in &mut event.handlers {
+                handler(self, e);
+            }
+            if (cfg!(debug) || cfg!(test)) && event.handlers.is_empty() {
+                panic!("if all handlers are removed from a tracker, it should be removed: {:?}", ty);
+            }
+        });
+    }
+    fn submit_event0(&self, ty: &Ty, then: &mut dyn FnMut(&mut dyn AnyDebug)) {
         let event = unsafe {
             let mut objects = self.objects.lock().unwrap();
             if let Some(locked) = objects.get_mut(ty) {
                 locked.acquire(Access::Write);
                 let obj: &mut dyn AnyDebug = &mut *locked.contents();
-                obj.downcast_mut::<Tracker<E>>().unwrap()
+                obj
             } else {
                 // FIXME: Yeah, idk, it's not great, but also, like, whatever. v9 is now creating
                 // these events regardless of if there's a tracker because for its own events there
@@ -43,17 +54,14 @@ impl Universe {
                 return;
             }
         };
-        for handler in &mut event.handlers {
-            handler(self, e);
-        }
-        if (cfg!(debug) || cfg!(test)) && event.handlers.is_empty() {
-            panic!("if all handlers are removed from a tracker, it should be removed: {:?}", type_name::<E>());
-        }
-        let mut objects = self.objects.lock().unwrap();
-        objects
-            .get_mut(ty)
-            .expect("lost locked object")
-            .release(Access::Write);
+        let _release = crate::util::Defer(|| {
+            let mut objects = self.objects.lock().unwrap();
+            objects
+                .get_mut(ty)
+                .expect("lost locked object")
+                .release(Access::Write);
+        });
+        then(event);
     }
     pub fn is_tracked<E: 'static + Send + Sync>(&self) -> bool {
         self.has_ty(Ty::of::<Tracker<E>>())

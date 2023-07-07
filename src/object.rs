@@ -156,13 +156,7 @@ impl Universe {
         let obj = unsafe { obj.contents() };
         mem::drop(objects);
         let _cleanup = {
-            struct Defer<T: FnMut()>(T);
-            impl<T: FnMut()> Drop for Defer<T> {
-                fn drop(&mut self) {
-                    (self.0)()
-                }
-            }
-            Defer(move || {
+            crate::util::Defer(move || {
                 let mut objects = self.objects.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let obj = objects
                     .get_mut(&ty)

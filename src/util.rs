@@ -65,3 +65,10 @@ impl<'a, T> Deref for MutButRef<'a, T> {
 pub mod die {
     pub static BAD_ITER_LEN: &str = "Iterator must know its exact Id length";
 }
+
+pub(crate) struct Defer<T: FnMut()>(pub T);
+impl<T: FnMut()> Drop for Defer<T> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
