@@ -12,7 +12,7 @@ pub type Handler<E> = Box<dyn FnMut(&Universe, &mut E) + Send + Sync>;
 // FIXME: Events should use RunIter.
 #[derive(Default)]
 pub struct Tracker<E: 'static + Send + Sync> {
-    pub handlers: Vec<Handler<E>>,
+    handlers: Vec<Handler<E>>,
 }
 impl<E: 'static + Send + Sync> fmt::Debug for Tracker<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -30,7 +30,7 @@ impl Universe {
     pub fn submit_event<E: AnyDebug + Send + Sync>(&self, e: &mut E) {
         let ty = &Ty::of::<Tracker<E>>();
         let event = unsafe {
-            let mut objects = self.objects.write().unwrap();
+            let mut objects = self.objects.lock().unwrap();
             if let Some(locked) = objects.get_mut(ty) {
                 locked.acquire(Access::Write);
                 let obj: &mut dyn AnyDebug = &mut *locked.contents();
@@ -49,7 +49,7 @@ impl Universe {
         if (cfg!(debug) || cfg!(test)) && event.handlers.is_empty() {
             panic!("if all handlers are removed from a tracker, it should be removed: {:?}", type_name::<E>());
         }
-        let mut objects = self.objects.write().unwrap();
+        let mut objects = self.objects.lock().unwrap();
         objects
             .get_mut(ty)
             .expect("lost locked object")
@@ -63,9 +63,10 @@ impl Universe {
         self.add_tracker_box(Box::new(f))
     }
     fn add_tracker_box<E: 'static + Send + Sync>(&self, f: Box<dyn FnMut(&Universe, &mut E) + Send + Sync>) {
+        assert!(!self.frozen);
         // Can't use with() because object may not exist.
         let ty = Ty::of::<Tracker<E>>();
-        let mut objects = self.objects.write().unwrap();
+        let mut objects = self.objects.lock().unwrap();
         let obj = objects
             .entry(ty)
             .or_insert_with(|| Locked::new(

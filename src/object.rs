@@ -3,7 +3,7 @@
 use crate::prelude_lib::*;
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Mutex, Condvar};
 use ezty::AnyDebug;
 
 // FIXME: impl Extract for Universe.
@@ -13,8 +13,9 @@ use ezty::AnyDebug;
 /// The star of our show! The god object that holds everything.
 #[derive(Default)]
 pub struct Universe {
-    // FIXME: Vec<Arc<RwLock<HashMap>>>; maybe called Vec<Blob>? Or maybe just s/Box/Arc<Locked>?
-    pub(crate) objects: RwLock<HashMap<Ty, Box<Locked>>>,
+    pub(crate) objects: Mutex<HashMap<Ty, Box<Locked>>>,
+    pub(crate) condvar: Condvar,
+    pub(crate) frozen: bool,
 }
 
 unsafe impl Send for Universe {}
@@ -36,34 +37,42 @@ impl Universe {
         };
     }
     pub fn add<T: AnyDebug>(&self, key: Ty, obj: T) {
-        let map = &mut *self.objects.write().unwrap();
+        assert!(!self.frozen);
+        let map = &mut *self.objects.lock().unwrap();
         Universe::insert(map, key, Locked::new(Box::new(obj), std::any::type_name::<T>()));
     }
     pub fn add_mut<T: AnyDebug>(&mut self, key: Ty, obj: T) {
+        assert!(!self.frozen);
         let map = &mut *self.objects.get_mut().unwrap();
         let obj = Locked::new(Box::new(obj), std::any::type_name::<T>());
         Universe::insert(map, key, obj);
     }
     pub fn remove<T: AnyDebug>(&self, key: Ty) -> Option<Box<dyn AnyDebug>> {
+        assert!(!self.frozen);
         self.objects
-            .write()
+            .lock()
             .unwrap()
             .remove(&key)
             .map(|l| l.into_inner())
     }
     pub fn remove_mut<T: AnyDebug>(&mut self, key: Ty) -> Option<Box<dyn AnyDebug>> {
+        assert!(!self.frozen);
         self.objects
             .get_mut()
             .unwrap()
             .remove(&key)
             .map(|l| l.into_inner())
     }
+    /// Disable further modification to the structure of the Universe.
+    pub fn freeze(&mut self) {
+        self.frozen = true;
+    }
     pub fn has<T: AnyDebug>(&self) -> bool {
         self.has_ty(Ty::of::<T>())
     }
     pub fn has_ty(&self, ty: Ty) -> bool {
         self.objects
-            .read()
+            .lock()
             .unwrap()
             .get(&ty)
             .is_some()
@@ -72,7 +81,7 @@ impl Universe {
 
 impl Universe {
     pub fn all_mut(&mut self, mut each: impl FnMut(/*marker:*/ Ty, /*obj:*/ &mut dyn AnyDebug)) {
-        let mut objs = self.objects.write().unwrap();
+        let mut objs = self.objects.lock().unwrap();
         for (marker, lock) in objs.iter_mut() {
             unsafe {
                 let mut lock = lock.write();
@@ -82,7 +91,7 @@ impl Universe {
         }
     }
     pub fn all_ref(&self, mut each: impl FnMut(/*marker:*/ Ty, /*obj:*/ &dyn AnyDebug)) {
-        let mut objs = self.objects.write().unwrap();
+        let mut objs = self.objects.lock().unwrap();
         for (marker, lock) in objs.iter_mut() {
             unsafe {
                 let lock = lock.read(/* mut. Awkard. */);
@@ -133,28 +142,39 @@ impl Universe {
         access: Access,
         f: &mut dyn FnMut(*mut dyn AnyDebug),
     ) {
-        loop {
-            let mut objects = self.objects.write().unwrap();
+        let objects = self.objects.lock().unwrap();
+        let mut objects = self.condvar.wait_while(objects, |objects| {
             let obj = objects
                 .get_mut(&ty)
                 .unwrap_or_else(|| panic!("type not found: {:?}", ty));
-            if obj.can(access) {
-                obj.acquire(access);
-                let obj = unsafe { obj.contents() };
-                mem::drop(objects);
-                f(obj);
-                let mut objects = self.objects.write().unwrap();
+            !obj.can(access)
+        }).expect("with_var condvar wait failed");
+        let obj = objects
+            .get_mut(&ty)
+            .unwrap_or_else(|| panic!("type not found: {:?}", ty));
+        obj.acquire(access);
+        let obj = unsafe { obj.contents() };
+        mem::drop(objects);
+        let _cleanup = {
+            struct Defer<T: FnMut()>(T);
+            impl<T: FnMut()> Drop for Defer<T> {
+                fn drop(&mut self) {
+                    (self.0)()
+                }
+            }
+            Defer(move || {
+                let mut objects = self.objects.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let obj = objects
                     .get_mut(&ty)
                     .unwrap_or_else(|| panic!("type lost while in use: {:?}", ty));
                 obj.release(access);
-                return;
-            }
-            // FIXME: Hey, isn't this a busy-loop? Sounds like a bad time...
-        }
+                self.condvar.notify_all();
+            })
+        };
+        f(obj);
     }
     pub fn lock_state_dump(&self) {
-        let objects = self.objects.read().unwrap();
+        let objects = self.objects.lock().unwrap();
         for (ty, val) in objects.iter() {
             println!("    {:?}\t{:?}", ty, val.state);
         }

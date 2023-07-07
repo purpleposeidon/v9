@@ -70,6 +70,10 @@ impl Locked {
         }
     }
     pub fn release(&mut self, access: Access) {
+        if access == Access::Write && std::thread::panicking() {
+            self.state = LockState::Poison;
+            return;
+        }
         //println!("release {:?} on {:?}", access, self);
         self.state = match (self.state, access) {
             (LockState::Poison, _) => self.state,
@@ -112,12 +116,13 @@ impl Drop for Locked {
     fn drop(&mut self) {
         if let LockState::Write(_) = self.state {
             if std::thread::panicking() {
-                self.state = LockState::Poison;
-            } else if let LockState::Poison = self.state {
                 // This is fine.
             } else {
-                panic!("Locked object dropped without release(): {:?}", self);
+                eprintln!("Locked object dropped without release(): {:?}", self);
             }
+            let mut idol = UnsafeCell::new(Box::new(()) as Box<dyn AnyDebug>);
+            std::mem::swap(&mut idol, &mut self.obj);
+            std::mem::forget(idol);
         }
     }
 }

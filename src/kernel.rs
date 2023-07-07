@@ -1,12 +1,49 @@
 //! Running functions over the Universe.
 
 use crate::prelude_lib::*;
-use self::panic::AssertUnwindSafe;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::cell::Cell;
 use std::fmt;
 use std::any::Any as StdAny;
+
+#[must_use]
+pub struct ResetBuffer<'a> {
+    pub(crate) universe: &'a Universe,
+    pub name: &'a str,
+    buffer: &'a mut LockBuffer,
+}
+impl Drop for ResetBuffer<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            if !self.name.is_empty() {
+                eprintln!("NOTE: Panic in kernel {}", self.name);
+            }
+            let mut objects = self.universe.objects.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            for &(ty, acc) in &self.buffer.resources {
+                if let Some(obj) = objects.get_mut(&ty) {
+                    // Sets poison as appropriate.
+                    obj.release(acc);
+                }
+            }
+            self.universe.condvar.notify_all();
+        }
+        self.buffer.vals.clear();
+    }
+}
+impl ResetBuffer<'_> {
+    fn done(self) {}
+    pub fn cleanup(&self) {
+        // The cleanup closure.
+        // See comment in 'fn run' KernelFn impl.
+        let mut objects = self.universe.objects.lock().expect("unable to release locks");
+        for &(ty, acc) in &self.buffer.resources {
+            let lock = objects.get_mut(&ty).expect("lost locked object");
+            lock.release(acc);
+        }
+        self.universe.condvar.notify_all();
+    }
+}
 
 impl Universe {
     pub fn run(&self, kernel: &mut Kernel) {
@@ -17,91 +54,66 @@ impl Universe {
         self.run_and_return_into(kernel, (&mut ret) as &mut dyn StdAny);
         ret.expect("return value not set")
     }
-    unsafe fn prepare_buffer(&self, name: &str, buffer: &mut LockBuffer) {
-        'again: loop {
-            let mut objects = self.objects.write().unwrap();
+    unsafe fn prepare_buffer<'a>(&'a self, name: &'a str, buffer: &'a mut LockBuffer) -> ResetBuffer<'a> {
+        let objects = self.objects.lock().expect("prepare_buffer locking objects failed");
+        let _objects = self.condvar.wait_while(objects, |objects| {
             let locks = &mut buffer.locks;
-            let vals = &mut buffer.vals;
-            let resources = &buffer.resources;
+            let resources = &mut buffer.resources;
             locks.clear();
             // `vals.clear()` goes below so that it can be used to pass in additional arguments.
-            for (argn, &(ty, acc)) in resources.iter().enumerate() {
-                let lock = objects
-                    .get_mut(&ty)
-                    .unwrap_or_else(|| {
-                        panic!("kernel {:?} argument component {} (of {}) has unknown type {:?}", name, argn, resources.len(), ty)
-                    });
-                if !lock.can(acc) {
-                    continue 'again;
-                }
-                locks.push((lock.deref_mut() as *mut Locked, acc));
-            }
-            for &mut (lock, acc) in locks {
-                let lock: &mut Locked = &mut *lock;
-                lock.acquire(acc);
-                let obj: *mut dyn AnyDebug = lock.contents();
-                let obj: &mut dyn AnyDebug = &mut *obj;
-                let obj: *mut dyn AnyDebug = obj;
-                vals.push((obj, acc));
-            }
-            break;
+            resources
+                .iter()
+                .enumerate()
+                .any(|(argn, &(ty, acc))| {
+                    let lock = objects
+                        .get_mut(&ty)
+                        .unwrap_or_else(|| {
+                            panic!("kernel {:?} argument component {} (of {}) has unknown type {:?}", name, argn, resources.len(), ty)
+                        });
+                    if !lock.can(acc) {
+                        true
+                    } else {
+                        locks.push((lock.deref_mut() as *mut Locked, acc));
+                        false
+                    }
+                })
+        }).expect("prepare_buffer condvar wait failed");
+        for &mut (lock, acc) in &mut buffer.locks {
+            let lock: &mut Locked = &mut *lock;
+            lock.acquire(acc);
+            let obj: *mut dyn AnyDebug = lock.contents();
+            let obj: &mut dyn AnyDebug = &mut *obj;
+            let obj: *mut dyn AnyDebug = obj;
+            buffer.vals.push((obj, acc));
+        }
+        ResetBuffer {
+            universe: self,
+            name,
+            buffer,
         }
     }
     unsafe fn execute_from_buffer<F>(
         &self,
-        buffer: &mut LockBuffer,
         func: F,
-        name: &str,
         return_value: &mut dyn StdAny,
+        cleanup: &mut ResetBuffer,
     )
     where
-        F: FnOnce(&Universe, Rez, &mut dyn StdAny, &mut dyn FnMut()),
+        F: FnOnce(Rez, &mut dyn StdAny, &mut ResetBuffer),
     {
-        let rez = Rez::new(mem::transmute(&buffer.vals[..]));
-        let resources = &buffer.resources;
-        let unwind = panic::catch_unwind(AssertUnwindSafe(move || {
-            // Hey! You! Are you in gdb trying to bust into your kernel?
-            // Stepping from here doesn't work for some reason.
-            //      break v9_before_kernel_run
-            func(self, rez, return_value, &mut move || {
-                // The cleanup closure.
-                // See comment in 'fn run' KernelFn impl.
-                let mut objects = self.objects.write().expect("unable to release locks");
-                for &(ty, acc) in resources {
-                    let lock = objects.get_mut(&ty).expect("lost locked object");
-                    lock.release(acc);
-                }
-            });
-        }));
-        buffer.vals.clear();
-        match unwind {
-            Ok(v) => v,
-            Err(e) if name.is_empty() => panic::resume_unwind(e),
-            Err(e) => {
-                // FIXME: This causes two backtraces.
-                // But if I panic::resume_unwind, it re-uses the original value‽‽‽
-                // I would have to use a hook to fix this.
-                // But I think that would have problems w/ shared libraries.
-                match e.downcast::<&str>() {
-                    Ok(msg) => panic!("{} in kernel {}", msg, name),
-                    Err(e) => match e.downcast::<String>() {
-                        Ok(msg) => panic!("{} in kernel {}", msg, name),
-                        Err(e) => panic::resume_unwind(e),
-                    },
-                }
-            },
-        }
+        let rez = Rez::new(mem::transmute(&cleanup.buffer.vals[..]));
+        func(rez, return_value, cleanup);
     }
     pub fn run_and_return_into(&self, kernel: &mut Kernel, return_value: &mut dyn StdAny) {
         // FIXME(soundness): Assert that all columns in a single table have same length.
         unsafe {
-            self.prepare_buffer(&kernel.name, &mut kernel.buffer);
+            let mut cleanup = self.prepare_buffer(&kernel.name, &mut kernel.buffer);
             self.execute_from_buffer(
-                &mut kernel.buffer,
                 &mut kernel.run,
-                &kernel.name,
                 return_value,
+                &mut cleanup,
             );
+            cleanup.done();
         }
     }
     pub fn eval<Dump, Ret, K>(&self, k: K) -> Ret
@@ -110,16 +122,21 @@ impl Universe {
     {
         // FIXME: There's some efficiency that could be squeezed outta this.
         // We could store a 'trusted kernel type', and skip the validation.
+        let name = std::any::type_name::<K>();
+        let ret = Cell::new(Option::<Ret>::None);
+        let run = |rez: Rez, _ret: &mut dyn StdAny, cleanup: &mut ResetBuffer| {
+            let got = unsafe { k.run(rez, cleanup) };
+            ret.set(Some(got));
+        };
         unsafe {
             let mut buffer = LockBuffer::new::<Dump, Ret, K>();
-            let name = std::any::type_name::<K>();
-            self.prepare_buffer(name, &mut buffer);
-            let ret = Cell::new(Option::<Ret>::None);
-            let run = |universe: &Universe, rez: Rez, _ret: &mut dyn StdAny, cleanup: &mut dyn FnMut()| {
-                let got = k.run(universe, rez, cleanup);
-                ret.set(Some(got));
-            };
-            self.execute_from_buffer(&mut buffer, run, name, &mut ());
+            let mut cleanup = self.prepare_buffer(name, &mut buffer);
+            self.execute_from_buffer(
+                run,
+                &mut (),
+                &mut cleanup,
+            );
+            cleanup.done();
             ret.into_inner().take().expect("return value not set")
         }
     }
@@ -156,11 +173,11 @@ impl Universe {
 ///    - `kmap` requires the return value be `()`.
 ///    - `kmap_return` and `run_return` requires `AnyDebug`, which means it must be `'static`.
 pub unsafe trait KernelFn<Dump, Ret>: EachResource<Dump, Ret> {
-    unsafe fn run(&mut self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
+    unsafe fn run(&mut self, args: Rez, cleanup: &ResetBuffer) -> Ret;
 }
 
 pub unsafe trait KernelFnOnce<Dump, Ret>: EachResource<Dump, Ret> {
-    unsafe fn run(self, universe: &Universe, args: Rez, cleanup: &mut dyn FnMut()) -> Ret;
+    unsafe fn run(self, args: Rez, cleanup: &ResetBuffer) -> Ret;
 }
 
 pub unsafe trait EachResource<Dump, Ret> {
@@ -172,7 +189,7 @@ pub unsafe trait EachResource<Dump, Ret> {
 /// Works like a `Box<KernelFn>`.
 #[must_use]
 pub struct Kernel {
-    run: Box<dyn FnMut(&Universe, Rez, &mut dyn StdAny, &mut dyn FnMut()) + 'static + Send + Sync>,
+    run: Box<dyn FnMut(Rez, &mut dyn StdAny, &mut ResetBuffer) + 'static + Send + Sync>,
     buffer: LockBuffer,
     pub name: Cow<'static, str>,
 }
@@ -243,10 +260,10 @@ impl Kernel {
     {
         Kernel {
             // Strange that we must duplicate this...
-            run: Box::new(move |universe, rez, ret, cleanup| unsafe {
+            run: Box::new(move |rez, ret, cleanup| unsafe {
                 let ret: &mut Option<Ret> = ret.downcast_mut().expect("return type mismatch");
                 v9_before_kernel_run();
-                *ret = Some(k.run(universe, rez, cleanup));
+                *ret = Some(k.run(rez, cleanup));
             }),
             buffer: LockBuffer::new::<Dump, Ret, K>(),
             name: std::any::type_name::<K>().into(),
@@ -371,15 +388,15 @@ macro_rules! impl_kernel {
             X: FnMut($($A),*) -> Ret,
             $($A: Extract,)*
         {
-            unsafe fn run(&mut self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
-                $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
+            unsafe fn run(&mut self, mut args: Rez, cleanup: &ResetBuffer) -> Ret {
+                $(let mut $A: $A::Owned = $A::extract(cleanup.universe, &mut args);)*
                 let ret = {
-                    $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
+                    $(let $A: $A = $A::convert(cleanup.universe, &mut $A as *mut $A::Owned);)*
                     self($($A),*)
                 };
-                $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, universe);)*
-                cleanup(); // Releases the locks.
-                $($A.post_cleanup(universe);)*
+                $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, cleanup.universe);)*
+                cleanup.cleanup(); // Releases the locks.
+                $($A.post_cleanup(cleanup.universe);)*
                 ret
             }
         }
@@ -389,15 +406,15 @@ macro_rules! impl_kernel {
             X: FnOnce($($A),*) -> Ret,
             $($A: Extract,)*
         {
-            unsafe fn run(self, universe: &Universe, mut args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
-                $(let mut $A: $A::Owned = $A::extract(universe, &mut args);)*
+            unsafe fn run(self, mut args: Rez, cleanup: &ResetBuffer) -> Ret {
+                $(let mut $A: $A::Owned = $A::extract(cleanup.universe, &mut args);)*
                 let ret = {
-                    $(let $A: $A = $A::convert(universe, &mut $A as *mut $A::Owned);)*
+                    $(let $A: $A = $A::convert(cleanup.universe, &mut $A as *mut $A::Owned);)*
                     self($($A),*)
                 };
-                $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, universe);)*
-                cleanup(); // Releases the locks.
-                $($A.post_cleanup(universe);)*
+                $(let $A: $A::Cleanup = $A::Cleanup::pre_cleanup($A, cleanup.universe);)*
+                cleanup.cleanup(); // Releases the locks.
+                $($A.post_cleanup(cleanup.universe);)*
                 ret
             }
         }
@@ -419,9 +436,9 @@ unsafe impl<X, Ret> KernelFn<(), Ret> for X
 where
     X: FnMut() -> Ret,
 {
-    unsafe fn run(&mut self, _universe: &Universe, _args: Rez, cleanup: &mut dyn FnMut()) -> Ret {
+    unsafe fn run(&mut self, _args: Rez, cleanup: &ResetBuffer) -> Ret {
         let ret = self();
-        cleanup();
+        cleanup.cleanup();
         ret
     }
 }
