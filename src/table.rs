@@ -335,7 +335,7 @@ macro_rules! decl_table {
                     }
                     pub fn push(&mut self, row: Row) -> Id {
                         unsafe {
-                            match self.__v9__iter.recycle_id_no_event() {
+                            match self.__v9__iter.recycle_id(true) {
                                 Ok(id) => {
                                     self.set_immediate(id.to_usize(), row);
                                     id
@@ -362,7 +362,7 @@ macro_rules! decl_table {
                         self.__v9__iter.validate();
                         let mut rows = rows.into_iter();
                         let n = rows.len();
-                        let recycle = unsafe { self.__v9__iter.recycle_ids_contiguous_no_event(n) };
+                        let recycle = unsafe { self.__v9__iter.recycle_ids_contiguous(n, true) };
                         for id in recycle.replace.iter() {
                             let row = rows.next().expect($crate::util::die::BAD_ITER_LEN);
                             unsafe { self.set_immediate(id.to_usize(), row); }

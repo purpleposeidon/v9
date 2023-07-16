@@ -24,7 +24,7 @@ fn log1() {
     macro_rules! recycle_ids_contiguous {
         ($n:expr, $expect:expr) => {
             let n = $n;
-            let _r = unsafe { ids.recycle_ids_contiguous_no_event(n) };
+            let _r = unsafe { ids.recycle_ids_contiguous(n, true) };
             //let expect = $expect;
             //assert_eq!(r, expect);
         };
@@ -32,7 +32,7 @@ fn log1() {
     macro_rules! recycle_ids {
         ($n:expr, $expect:expr) => {
             let n = $n;
-            let _r = unsafe { ids.recycle_ids_no_event(n) };
+            let _r = unsafe { ids.recycle_ids(n, true) };
             //let expect = $expect;
             //assert_eq!(r, expect);
         };
@@ -73,11 +73,11 @@ fn fuzz() {
             for _ in 0..n {
                 let n = rng.gen_range(1..10usize);
                 let recycle = if rng.gen() {
-                    let r = unsafe { ids.recycle_ids_contiguous_no_event(n) };
+                    let r = unsafe { ids.recycle_ids_contiguous(n, true) };
                     println!("recycle_ids_contiguous!({}, {:?});", n, r);
                     r
                 } else {
-                    let r = unsafe { ids.recycle_ids_no_event(n) };
+                    let r = unsafe { ids.recycle_ids(n, true) };
                     println!("recycle_ids!           ({}, {:?});", n, r);
                     r
                 };

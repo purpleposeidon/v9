@@ -518,7 +518,7 @@ impl<M: TableMarker> IdList<M> {
             event_commitment: &mut self.event_commitment as *mut _,
         }
     }
-    /// What the next call to `recycle_id_no_event()` will return.
+    /// What the next call to `recycle_id()` will return.
     #[inline]
     pub fn next_recycle_id(&self) -> Id<M> {
         Id::<M>(self.inner.next_recycle_id())
@@ -527,8 +527,8 @@ impl<M: TableMarker> IdList<M> {
     ///
     /// # Safety
     /// This function is unsafe because it does not push anything to the tables's column vectors.
-    pub unsafe fn recycle_id_no_event(&mut self) -> Result<Id<M>, Id<M>> {
-        self.event_commitment.put(EventCommitment::Push { event: false });
+    pub unsafe fn recycle_id(&mut self, event: bool) -> Result<Id<M>, Id<M>> {
+        self.event_commitment.pushing(event);
         match self.inner.recycle_id() {
             Ok(id) => Ok(Id(id)),
             Err(id) => Err(Id(id)),
@@ -537,8 +537,8 @@ impl<M: TableMarker> IdList<M> {
     /// Returns a list of IDs in an arbitrary order.
     /// # Safety
     /// This function is unsafe because it does not push anything to the tables's column vectors.
-    pub unsafe fn recycle_ids_no_event(&mut self, n: usize) -> Recycle<M> {
-        self.event_commitment.put(EventCommitment::Push { event: false });
+    pub unsafe fn recycle_ids(&mut self, n: usize, event: bool) -> Recycle<M> {
+        self.event_commitment.pushing(event);
         let n = M::RawId::from_usize(n);
         let recycle = self.inner.recycle_ids_sparse(n);
         Recycle {
@@ -554,8 +554,8 @@ impl<M: TableMarker> IdList<M> {
     /// Note: This method is `O(self.free.data.len())`
     /// # Safety
     /// This function is unsafe because it does not push anything to the tables's column vectors.
-    pub unsafe fn recycle_ids_contiguous_no_event(&mut self, n: usize) -> Recycle<M> {
-        self.event_commitment.put(EventCommitment::Push { event: false });
+    pub unsafe fn recycle_ids_contiguous(&mut self, n: usize, event: bool) -> Recycle<M> {
+        self.event_commitment.pushing(event);
         let n = M::RawId::from_usize(n);
         let recycle = self.inner.recycle_ids_contiguous(n);
         Recycle {
@@ -620,8 +620,13 @@ impl EventCommitment {
         if let EventCommitment::None = self {
             assert!(new != EventCommitment::None);
             *self = new;
-        } else {
-            assert!(*self == new, "Can't mix event commitments: existing was {:?}, new is {:?}", self, new);
+        } else if *self != new {
+            panic!("Can't mix event commitments: existing was {:?}, new is {:?}", self, new);
+        }
+    }
+    pub fn pushing(&mut self, event: bool) {
+        if event {
+            self.put(EventCommitment::Push { event: true });
         }
     }
 }
@@ -1026,7 +1031,7 @@ mod test_run_list {
                     }
                     let mut pushed = vec![];
                     for _ in 0..x {
-                        let id = r(l.recycle_id_no_event());
+                        let id = r(l.recycle_id(true));
                         pushed.push(id);
                         l.len();
                     }
@@ -1084,7 +1089,7 @@ mod test_run_list {
                 }
             }
             println!("\npush");
-            let a = r(l.recycle_id_no_event());
+            let a = r(l.recycle_id(true));
             { l.len(); l.flush(u); l.len(); }
 
             println!("{:?}", l);
@@ -1094,7 +1099,7 @@ mod test_run_list {
             { l.len(); l.flush(u); l.len(); }
 
             println!("\nresurect");
-            let a2 = r(l.recycle_id_no_event());
+            let a2 = r(l.recycle_id(true));
             { l.len(); l.flush(u); l.len(); }
             assert_eq!(a, a2);
 
