@@ -146,6 +146,7 @@ impl Universe {
             },
         );
     }
+    #[track_caller]
     pub fn add_tracker_with_ref_arg<F, Dump, E>(&mut self, f: F)
     where
         F: KernelFn<Dump, ()>,
@@ -161,6 +162,7 @@ impl Universe {
                 .run(universe)
         });
     }
+    #[track_caller]
     pub fn add_tracker_with_mut_arg<F, Dump, E>(&mut self, f: F)
     where
         F: KernelFn<Dump, ()>,

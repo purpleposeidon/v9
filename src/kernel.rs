@@ -1,11 +1,12 @@
 //! Running functions over the Universe.
 
 use crate::prelude_lib::*;
-use std::borrow::Cow;
-use std::collections::HashSet;
-use std::cell::Cell;
-use std::fmt;
 use std::any::Any as StdAny;
+use std::borrow::Cow;
+use std::cell::Cell;
+use std::collections::HashSet;
+use std::fmt;
+use std::panic::Location;
 
 fn describe_resources(resources: &[(Ty, Access)]) {
     if resources.is_empty() {
@@ -69,17 +70,13 @@ fn describe_resources(resources: &[(Ty, Access)]) {
 #[must_use]
 pub struct ResetBuffer<'a> {
     pub(crate) universe: &'a Universe,
-    pub name: &'a str,
+    pub name: &'a KernelName,
     buffer: &'a mut LockBuffer,
 }
 impl Drop for ResetBuffer<'_> {
     fn drop(&mut self) {
         if std::thread::panicking() {
-            if self.name.is_empty() {
-                eprintln!("NOTE: Panic in un-named kernel");
-            } else {
-                eprintln!("NOTE: Panic in kernel {}", self.name);
-            }
+            eprintln!("NOTE: Panic in kernel {}", self.name);
             describe_resources(&self.buffer.resources);
             let mut objects = self.universe.objects.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             for &(ty, acc) in &self.buffer.resources {
@@ -108,17 +105,13 @@ impl<'a> ResetBuffer<'a> {
     }
 }
 pub struct PostCleanup<'a> {
-    pub name: &'a str,
+    pub name: &'a KernelName,
     buffer: &'a LockBuffer,
 }
 impl Drop for PostCleanup<'_> {
     fn drop(&mut self) {
         if std::thread::panicking() {
-            if self.name.is_empty() {
-                eprintln!("NOTE: Post-cleanup panic in un-named kernel");
-            } else {
-                eprintln!("NOTE: Post-cleanup panic in kernel {}", self.name);
-            }
+            eprintln!("NOTE: Post-cleanup panic in kernel {}", self.name);
             describe_resources(&self.buffer.resources);
         }
     }
@@ -133,7 +126,7 @@ impl Universe {
         self.run_and_return_into(kernel, (&mut ret) as &mut dyn StdAny);
         ret.expect("return value not set")
     }
-    unsafe fn prepare_buffer<'a>(&'a self, name: &'a str, buffer: &'a mut LockBuffer) -> ResetBuffer<'a> {
+    unsafe fn prepare_buffer<'a>(&'a self, name: &'a KernelName, buffer: &'a mut LockBuffer) -> ResetBuffer<'a> {
         let objects = self.objects.lock().expect("prepare_buffer locking objects failed");
         let _objects = self.condvar.wait_while(objects, |objects| {
             let locks = &mut buffer.locks;
@@ -147,7 +140,7 @@ impl Universe {
                     let lock = objects
                         .get_mut(&ty)
                         .unwrap_or_else(|| {
-                            panic!("kernel {:?} argument component {} (of {}) has unknown type {:?}", name, argn, resources.len(), ty)
+                            panic!("kernel {} argument component {} (of {}) has unknown type {:?}", name, argn, resources.len(), ty)
                         });
                     if !lock.can(acc) {
                         true
@@ -195,13 +188,17 @@ impl Universe {
             cleanup.done();
         }
     }
+    #[track_caller]
     pub fn eval<Dump, Ret, K>(&self, k: K) -> Ret
     where
         K: KernelFnOnce<Dump, Ret>,
     {
         // FIXME: There's some efficiency that could be squeezed outta this.
         // We could store a 'trusted kernel type', and skip the validation.
-        let name = std::any::type_name::<K>();
+        let name = KernelName {
+            name: std::any::type_name::<K>().into(),
+            location: Location::caller(),
+        };
         let ret = Cell::new(Option::<Ret>::None);
         let run = |rez: Rez, _ret: &mut dyn StdAny, cleanup: &mut ResetBuffer| {
             let got = unsafe { k.run(rez, cleanup) };
@@ -209,7 +206,7 @@ impl Universe {
         };
         unsafe {
             let mut buffer = LockBuffer::new::<Dump, Ret, K>();
-            let mut cleanup = self.prepare_buffer(name, &mut buffer);
+            let mut cleanup = self.prepare_buffer(&name, &mut buffer);
             self.execute_from_buffer(
                 run,
                 &mut (),
@@ -265,12 +262,36 @@ pub unsafe trait EachResource<Dump, Ret> {
     fn each_resource(f: &mut dyn FnMut(Ty, Access));
 }
 
+#[derive(Clone)]
+pub struct KernelName {
+    pub name: Cow<'static, str>,
+    pub location: &'static Location<'static>,
+}
+impl fmt::Display for KernelName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.name.is_empty() {
+            write!(f, "<unnamed kernel> at {}", self.location)
+        } else {
+            write!(f, "{} at {}", self.name, self.location)
+        }
+    }
+}
+impl fmt::Debug for KernelName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.name.is_empty() {
+            write!(f, "<unnamed kernel> at {}", self.location)
+        } else {
+            write!(f, "{} at {}", self.name, self.location)
+        }
+    }
+}
+
 /// Works like a `Box<KernelFn>`.
 #[must_use]
 pub struct Kernel {
     run: Box<dyn FnMut(Rez, &mut dyn StdAny, &mut ResetBuffer) + 'static + Send + Sync>,
     buffer: LockBuffer,
-    pub name: Cow<'static, str>,
+    pub name: KernelName,
 }
 struct LockBuffer {
     resources: Vec<(Ty, Access)>,
@@ -313,11 +334,7 @@ impl LockBuffer {
 
 impl fmt::Debug for Kernel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.name.is_empty() {
-            write!(f, "<anonymous kernel>")
-        } else {
-            write!(f, "kernel {}", self.name)
-        }
+        write!(f, "{}", self.name)
     }
 }
 
@@ -330,6 +347,7 @@ fn v9_before_kernel_run() {}
 unsafe impl Send for LockBuffer {}
 unsafe impl Sync for LockBuffer {}
 impl Kernel {
+    #[track_caller]
     pub fn new<Dump, Ret, K>(mut k: K) -> Self
     where
         Ret: StdAny,
@@ -337,6 +355,10 @@ impl Kernel {
         K: 'static + Send + Sync,
         Dump: Send + Sync,
     {
+        let name = KernelName {
+            name: std::any::type_name::<K>().into(),
+            location: Location::caller(),
+        };
         Kernel {
             // Strange that we must duplicate this...
             run: Box::new(move |rez, ret, cleanup| unsafe {
@@ -345,7 +367,7 @@ impl Kernel {
                 *ret = Some(k.run(rez, cleanup));
             }),
             buffer: LockBuffer::new::<Dump, Ret, K>(),
-            name: std::any::type_name::<K>().into(),
+            name,
         }
     }
     /// A kernel may have arguments that the `Universe` doesn't know about.

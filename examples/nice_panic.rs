@@ -15,6 +15,5 @@ fn main() {
         panic!("\"Panic? In MY disco?\" It's more likely that you'd think!");
     };
     let mut k: Kernel = Kernel::new(k);
-    k.name = "/examples/nice_panic.rs::disco".into();
     universe.run(&mut k);
 }
