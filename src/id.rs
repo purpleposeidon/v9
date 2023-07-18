@@ -431,19 +431,21 @@ impl<M: TableMarker> IdList<M> {
     #[inline] pub fn outer_capacity(&self) -> usize { M::RawId::to_usize(self.inner.outer_capacity()) }
     #[inline] pub fn exists(&self, id: Id<M>) -> bool { self.inner.exists(id.0) }
     pub fn flush(&mut self, universe: &Universe) {
-        if let EventCommitment::None = self.event_commitment { return; }
+        if let (EventCommitment::None, false, false) = (self.event_commitment, self.inner.has_pushing(), self.inner.has_deleting()) { return; }
         self.event_commitment = EventCommitment::None;
+        let load = self.load_events;
+        let logi = !load;
         let (track_push, track_delete) = (
             {
                 false
                     || universe.is_tracked::<Push<M, lifestage::MEMORY>>()
-                    || universe.is_tracked::<Push<M, lifestage::LOGICAL>>()
-                    || universe.is_tracked::<Push<M, lifestage::LOAD>>()
+                    || (logi && universe.is_tracked::<Push<M, lifestage::LOGICAL>>())
+                    || (load && universe.is_tracked::<Push<M, lifestage::LOAD>>())
             }, {
                 false
                     || universe.is_tracked::<Delete<M, lifestage::MEMORY>>()
-                    || universe.is_tracked::<Delete<M, lifestage::LOGICAL>>()
-                    || universe.is_tracked::<Delete<M, lifestage::LOAD>>()
+                    || (logi && universe.is_tracked::<Delete<M, lifestage::LOGICAL>>())
+                    || (load && universe.is_tracked::<Delete<M, lifestage::LOAD>>())
             }
         );
         use runlist::FlushResult;
